@@ -282,88 +282,400 @@ const GameConfig = struct {
     }
 
     pub fn toJson(self: *const Self, allocator: Allocator) ![]u8 {
-        // Convert players
-        var serializable_players = ArrayList(SerializablePlayer).init(allocator);
-        defer serializable_players.deinit();
-        for (self.players.items) |*player| {
-            try serializable_players.append(player.toSerializable());
-        }
+        return self.toJsonCustom(allocator);
+    }
 
-        // Convert teams
-        var serializable_teams = ArrayList(SerializableTeam).init(allocator);
-        defer serializable_teams.deinit();
-        for (self.teams.items) |*team| {
-            try serializable_teams.append(team.toSerializable());
-        }
+    fn toJsonCustom(self: *const Self, allocator: Allocator) ![]u8 {
+        var json_str = ArrayList(u8).init(allocator);
+        defer json_str.deinit();
 
-        // Convert allyteams
-        var serializable_allyteams = ArrayList(SerializableAllyTeam).init(allocator);
-        defer serializable_allyteams.deinit();
-        for (self.allyteams.items) |*allyteam| {
-            try serializable_allyteams.append(allyteam.toSerializable());
-        }
+        try json_str.appendSlice("{\n");
 
-        // Convert string maps
-        var game_kv: ?[]SerializableKeyValue = null;
+        // Game section
+        try json_str.appendSlice("  \"game\": ");
         if (self.game) |*map| {
-            game_kv = try stringMapToKeyValueArray(map, allocator);
+            try self.writeKeyValueArray(&json_str, map);
+        } else {
+            try json_str.appendSlice("[]");
         }
-        defer if (game_kv) |kv| allocator.free(kv);
+        try json_str.appendSlice(",\n");
 
-        var modoptions_kv: ?[]SerializableKeyValue = null;
+        // Players section
+        try json_str.appendSlice("  \"players\": [\n");
+        for (self.players.items, 0..) |*player, i| {
+            if (i > 0) try json_str.appendSlice(",\n");
+            try self.writePlayer(&json_str, player);
+        }
+        try json_str.appendSlice("\n  ],\n");
+
+        // Teams section
+        try json_str.appendSlice("  \"teams\": [\n");
+        for (self.teams.items, 0..) |*team, i| {
+            if (i > 0) try json_str.appendSlice(",\n");
+            try self.writeTeam(&json_str, team);
+        }
+        try json_str.appendSlice("\n  ],\n");
+
+        // Allyteams section
+        try json_str.appendSlice("  \"allyteams\": [\n");
+        for (self.allyteams.items, 0..) |*allyteam, i| {
+            if (i > 0) try json_str.appendSlice(",\n");
+            try self.writeAllyTeam(&json_str, allyteam);
+        }
+        try json_str.appendSlice("\n  ],\n");
+
+        // Modoptions section
+        try json_str.appendSlice("  \"modoptions\": ");
         if (self.modoptions) |*map| {
-            modoptions_kv = try stringMapToKeyValueArray(map, allocator);
+            try self.writeKeyValueArray(&json_str, map);
+        } else {
+            try json_str.appendSlice("[]");
         }
-        defer if (modoptions_kv) |kv| allocator.free(kv);
+        try json_str.appendSlice(",\n");
 
-        var mapoptions_kv: ?[]SerializableKeyValue = null;
+        // Mapoptions section
+        try json_str.appendSlice("  \"mapoptions\": ");
         if (self.mapoptions) |*map| {
-            mapoptions_kv = try stringMapToKeyValueArray(map, allocator);
+            try self.writeKeyValueArray(&json_str, map);
+        } else {
+            try json_str.appendSlice("[]");
         }
-        defer if (mapoptions_kv) |kv| allocator.free(kv);
+        try json_str.appendSlice(",\n");
 
-        var hostoptions_kv: ?[]SerializableKeyValue = null;
+        // Hostoptions section
+        try json_str.appendSlice("  \"hostoptions\": ");
         if (self.hostoptions) |*map| {
-            hostoptions_kv = try stringMapToKeyValueArray(map, allocator);
+            try self.writeKeyValueArray(&json_str, map);
+        } else {
+            try json_str.appendSlice("[]");
         }
-        defer if (hostoptions_kv) |kv| allocator.free(kv);
+        try json_str.appendSlice(",\n");
 
-        var restrict_kv: ?[]SerializableKeyValue = null;
+        // Restrict section
+        try json_str.appendSlice("  \"restrict\": ");
         if (self.restrict) |*map| {
-            restrict_kv = try stringMapToKeyValueArray(map, allocator);
+            try self.writeKeyValueArray(&json_str, map);
+        } else {
+            try json_str.appendSlice("[]");
         }
-        defer if (restrict_kv) |kv| allocator.free(kv);
+        try json_str.appendSlice(",\n");
 
-        // Create serializable config
-        const serializable_config = SerializableGameConfig{
-            .game = game_kv,
-            .players = serializable_players.items,
-            .teams = serializable_teams.items,
-            .allyteams = serializable_allyteams.items,
-            .modoptions = modoptions_kv,
-            .mapoptions = mapoptions_kv,
-            .hostoptions = hostoptions_kv,
-            .restrict = restrict_kv,
-            .ishost = self.ishost,
-            .hostip = self.hostip,
-            .numallyteams = self.numallyteams,
-            .server_match_id = self.server_match_id,
-            .numteams = self.numteams,
-            .startpostype = self.startpostype,
-            .gametype = self.gametype,
-            .hosttype = self.hosttype,
-            .mapname = self.mapname,
-            .autohostport = self.autohostport,
-            .numrestrictions = self.numrestrictions,
-            .autohostname = self.autohostname,
-            .autohostrank = self.autohostrank,
-            .autohostaccountid = self.autohostaccountid,
-            .numplayers = self.numplayers,
-            .autohostcountrycode = self.autohostcountrycode,
-            .hostport = self.hostport,
-        };
+        // Global properties
+        try self.writeGlobalProperties(&json_str);
 
-        return json.stringifyAlloc(allocator, serializable_config, .{});
+        try json_str.appendSlice("}");
+
+        return json_str.toOwnedSlice();
+    }
+
+    fn writeKeyValueArray(self: *const Self, json_str: *ArrayList(u8), map: *const StringMap) !void {
+        _ = self;
+        try json_str.appendSlice("[\n");
+        var iterator = map.iterator();
+        var first = true;
+        while (iterator.next()) |entry| {
+            if (!first) try json_str.appendSlice(",\n");
+            first = false;
+            try json_str.appendSlice("    { \"key\": \"");
+            try json_str.appendSlice(entry.key_ptr.*);
+            try json_str.appendSlice("\", \"value\": \"");
+            try json_str.appendSlice(entry.value_ptr.*);
+            try json_str.appendSlice("\" }");
+        }
+        try json_str.appendSlice("\n  ]");
+    }
+
+    fn writePlayer(self: *const Self, json_str: *ArrayList(u8), player: *const Player) !void {
+        _ = self;
+        try json_str.appendSlice("    {\n");
+        try json_str.appendSlice("      \"id\": ");
+        try std.fmt.format(json_str.writer(), "{d}", .{player.id});
+
+        if (player.team) |team| {
+            try json_str.appendSlice(",\n      \"team\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{team});
+        } else {
+            try json_str.appendSlice(",\n      \"team\": null");
+        }
+
+        if (player.countrycode) |cc| {
+            try json_str.appendSlice(",\n      \"countrycode\": \"");
+            try json_str.appendSlice(cc);
+            try json_str.appendSlice("\"");
+        } else {
+            try json_str.appendSlice(",\n      \"countrycode\": null");
+        }
+
+        if (player.accountid) |aid| {
+            try json_str.appendSlice(",\n      \"accountid\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{aid});
+        } else {
+            try json_str.appendSlice(",\n      \"accountid\": null");
+        }
+
+        if (player.name) |name| {
+            try json_str.appendSlice(",\n      \"name\": \"");
+            try json_str.appendSlice(name);
+            try json_str.appendSlice("\"");
+        } else {
+            try json_str.appendSlice(",\n      \"name\": null");
+        }
+
+        if (player.rank) |rank| {
+            try json_str.appendSlice(",\n      \"rank\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{rank});
+        } else {
+            try json_str.appendSlice(",\n      \"rank\": null");
+        }
+
+        if (player.skill) |skill| {
+            try json_str.appendSlice(",\n      \"skill\": [");
+            for (skill, 0..) |s, i| {
+                if (i > 0) try json_str.appendSlice(", ");
+                try std.fmt.format(json_str.writer(), "{d:.6}", .{s});
+            }
+            try json_str.appendSlice("]");
+        } else {
+            try json_str.appendSlice(",\n      \"skill\": null");
+        }
+
+        if (player.spectator) |spec| {
+            try json_str.appendSlice(",\n      \"spectator\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{spec});
+        } else {
+            try json_str.appendSlice(",\n      \"spectator\": null");
+        }
+
+        if (player.skilluncertainty) |su| {
+            try json_str.appendSlice(",\n      \"skilluncertainty\": ");
+            try std.fmt.format(json_str.writer(), "{d:.6}", .{su});
+        } else {
+            try json_str.appendSlice(",\n      \"skilluncertainty\": null");
+        }
+
+        try json_str.appendSlice("\n    }");
+    }
+
+    fn writeTeam(self: *const Self, json_str: *ArrayList(u8), team: *const Team) !void {
+        _ = self;
+        try json_str.appendSlice("    {\n");
+        try json_str.appendSlice("      \"id\": ");
+        try std.fmt.format(json_str.writer(), "{d}", .{team.id});
+
+        if (team.allyteam) |at| {
+            try json_str.appendSlice(",\n      \"allyteam\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{at});
+        } else {
+            try json_str.appendSlice(",\n      \"allyteam\": null");
+        }
+
+        if (team.teamleader) |tl| {
+            try json_str.appendSlice(",\n      \"teamleader\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{tl});
+        } else {
+            try json_str.appendSlice(",\n      \"teamleader\": null");
+        }
+
+        if (team.rgbcolor) |color| {
+            try json_str.appendSlice(",\n      \"rgbcolor\": [");
+            for (color, 0..) |c, i| {
+                if (i > 0) try json_str.appendSlice(", ");
+                try std.fmt.format(json_str.writer(), "{d:.6}", .{c});
+            }
+            try json_str.appendSlice("]");
+        } else {
+            try json_str.appendSlice(",\n      \"rgbcolor\": null");
+        }
+
+        if (team.side) |side| {
+            try json_str.appendSlice(",\n      \"side\": \"");
+            try json_str.appendSlice(side);
+            try json_str.appendSlice("\"");
+        } else {
+            try json_str.appendSlice(",\n      \"side\": null");
+        }
+
+        if (team.handicap) |handicap| {
+            try json_str.appendSlice(",\n      \"handicap\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{handicap});
+        } else {
+            try json_str.appendSlice(",\n      \"handicap\": null");
+        }
+
+        try json_str.appendSlice("\n    }");
+    }
+
+    fn writeAllyTeam(self: *const Self, json_str: *ArrayList(u8), allyteam: *const AllyTeam) !void {
+        _ = self;
+        try json_str.appendSlice("    {\n");
+        try json_str.appendSlice("      \"id\": ");
+        try std.fmt.format(json_str.writer(), "{d}", .{allyteam.id});
+
+        if (allyteam.startrectleft) |srl| {
+            try json_str.appendSlice(",\n      \"startrectleft\": ");
+            try std.fmt.format(json_str.writer(), "{d:.6}", .{srl});
+        } else {
+            try json_str.appendSlice(",\n      \"startrectleft\": null");
+        }
+
+        if (allyteam.startrectright) |srr| {
+            try json_str.appendSlice(",\n      \"startrectright\": ");
+            try std.fmt.format(json_str.writer(), "{d:.6}", .{srr});
+        } else {
+            try json_str.appendSlice(",\n      \"startrectright\": null");
+        }
+
+        if (allyteam.startrectbottom) |srb| {
+            try json_str.appendSlice(",\n      \"startrectbottom\": ");
+            try std.fmt.format(json_str.writer(), "{d:.6}", .{srb});
+        } else {
+            try json_str.appendSlice(",\n      \"startrectbottom\": null");
+        }
+
+        if (allyteam.startrecttop) |srt| {
+            try json_str.appendSlice(",\n      \"startrecttop\": ");
+            try std.fmt.format(json_str.writer(), "{d:.6}", .{srt});
+        } else {
+            try json_str.appendSlice(",\n      \"startrecttop\": null");
+        }
+
+        if (allyteam.numallies) |na| {
+            try json_str.appendSlice(",\n      \"numallies\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{na});
+        } else {
+            try json_str.appendSlice(",\n      \"numallies\": null");
+        }
+
+        try json_str.appendSlice("\n    }");
+    }
+
+    fn writeGlobalProperties(self: *const Self, json_str: *ArrayList(u8)) !void {
+        if (self.ishost) |ih| {
+            try json_str.appendSlice("  \"ishost\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{ih});
+        } else {
+            try json_str.appendSlice("  \"ishost\": null");
+        }
+
+        if (self.hostip) |hip| {
+            try json_str.appendSlice(",\n  \"hostip\": \"");
+            try json_str.appendSlice(hip);
+            try json_str.appendSlice("\"");
+        } else {
+            try json_str.appendSlice(",\n  \"hostip\": null");
+        }
+
+        if (self.numallyteams) |nat| {
+            try json_str.appendSlice(",\n  \"numallyteams\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{nat});
+        } else {
+            try json_str.appendSlice(",\n  \"numallyteams\": null");
+        }
+
+        if (self.server_match_id) |smi| {
+            try json_str.appendSlice(",\n  \"server_match_id\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{smi});
+        } else {
+            try json_str.appendSlice(",\n  \"server_match_id\": null");
+        }
+
+        if (self.numteams) |nt| {
+            try json_str.appendSlice(",\n  \"numteams\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{nt});
+        } else {
+            try json_str.appendSlice(",\n  \"numteams\": null");
+        }
+
+        if (self.startpostype) |spt| {
+            try json_str.appendSlice(",\n  \"startpostype\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{spt});
+        } else {
+            try json_str.appendSlice(",\n  \"startpostype\": null");
+        }
+
+        if (self.gametype) |gt| {
+            try json_str.appendSlice(",\n  \"gametype\": \"");
+            try json_str.appendSlice(gt);
+            try json_str.appendSlice("\"");
+        } else {
+            try json_str.appendSlice(",\n  \"gametype\": null");
+        }
+
+        if (self.hosttype) |ht| {
+            try json_str.appendSlice(",\n  \"hosttype\": \"");
+            try json_str.appendSlice(ht);
+            try json_str.appendSlice("\"");
+        } else {
+            try json_str.appendSlice(",\n  \"hosttype\": null");
+        }
+
+        if (self.mapname) |mn| {
+            try json_str.appendSlice(",\n  \"mapname\": \"");
+            try json_str.appendSlice(mn);
+            try json_str.appendSlice("\"");
+        } else {
+            try json_str.appendSlice(",\n  \"mapname\": null");
+        }
+
+        if (self.autohostport) |ahp| {
+            try json_str.appendSlice(",\n  \"autohostport\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{ahp});
+        } else {
+            try json_str.appendSlice(",\n  \"autohostport\": null");
+        }
+
+        if (self.numrestrictions) |nr| {
+            try json_str.appendSlice(",\n  \"numrestrictions\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{nr});
+        } else {
+            try json_str.appendSlice(",\n  \"numrestrictions\": null");
+        }
+
+        if (self.autohostname) |ahn| {
+            try json_str.appendSlice(",\n  \"autohostname\": \"");
+            try json_str.appendSlice(ahn);
+            try json_str.appendSlice("\"");
+        } else {
+            try json_str.appendSlice(",\n  \"autohostname\": null");
+        }
+
+        if (self.autohostrank) |ahr| {
+            try json_str.appendSlice(",\n  \"autohostrank\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{ahr});
+        } else {
+            try json_str.appendSlice(",\n  \"autohostrank\": null");
+        }
+
+        if (self.autohostaccountid) |ahai| {
+            try json_str.appendSlice(",\n  \"autohostaccountid\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{ahai});
+        } else {
+            try json_str.appendSlice(",\n  \"autohostaccountid\": null");
+        }
+
+        if (self.numplayers) |np| {
+            try json_str.appendSlice(",\n  \"numplayers\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{np});
+        } else {
+            try json_str.appendSlice(",\n  \"numplayers\": null");
+        }
+
+        if (self.autohostcountrycode) |ahcc| {
+            try json_str.appendSlice(",\n  \"autohostcountrycode\": \"");
+            try json_str.appendSlice(ahcc);
+            try json_str.appendSlice("\"");
+        } else {
+            try json_str.appendSlice(",\n  \"autohostcountrycode\": null");
+        }
+
+        if (self.hostport) |hp| {
+            try json_str.appendSlice(",\n  \"hostport\": ");
+            try std.fmt.format(json_str.writer(), "{d}", .{hp});
+        } else {
+            try json_str.appendSlice(",\n  \"hostport\": null");
+        }
+
+        try json_str.appendSlice("\n");
     }
 };
 
@@ -644,13 +956,26 @@ const GameConfigParser = struct {
         }
 
         var result = ArrayList(f64).init(self.allocator);
-        var parts = std.mem.splitSequence(u8, trimmed, " ");
 
-        while (parts.next()) |part| {
-            const clean_part = std.mem.trim(u8, part, " \t,");
-            if (clean_part.len > 0) {
-                const float_val = try std.fmt.parseFloat(f64, clean_part);
-                try result.append(float_val);
+        // Try space-separated first (for RGB colors)
+        if (std.mem.indexOf(u8, trimmed, " ")) |_| {
+            var parts = std.mem.splitSequence(u8, trimmed, " ");
+            while (parts.next()) |part| {
+                const clean_part = std.mem.trim(u8, part, " \t,");
+                if (clean_part.len > 0) {
+                    const float_val = try std.fmt.parseFloat(f64, clean_part);
+                    try result.append(float_val);
+                }
+            }
+        } else {
+            // Single value or comma-separated
+            var parts = std.mem.splitSequence(u8, trimmed, ",");
+            while (parts.next()) |part| {
+                const clean_part = std.mem.trim(u8, part, " \t,");
+                if (clean_part.len > 0) {
+                    const float_val = try std.fmt.parseFloat(f64, clean_part);
+                    try result.append(float_val);
+                }
             }
         }
 
@@ -663,7 +988,7 @@ pub fn parseModOptions(allocator: Allocator, input: []const u8) !GameConfig {
     return parser.parse(input);
 }
 
-// Example usage
+// Example usage and test
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -692,21 +1017,65 @@ pub fn main() !void {
         \\side=Armada;
         \\handicap=0;
         \\}
+        \\[player1]
+        \\{
+        \\team=1;
+        \\countrycode=US;
+        \\accountid=12345;
+        \\name=TestPlayer;
+        \\rank=3;
+        \\skill=[25.98];
+        \\spectator=0;
+        \\skilluncertainty=4.12;
+        \\}
+        \\[team1]
+        \\{
+        \\allyteam=1;
+        \\teamleader=1;
+        \\rgbcolor=0.88627 0.03137 0.67843;
+        \\side=Cortex;
+        \\handicap=0;
+        \\}
         \\ishost=1;
-        \\numplayers=1;
+        \\numplayers=2;
         \\mapname=Test Map;
     ;
 
     var config = try parseModOptions(allocator, sample_input);
     defer config.deinit();
 
-    print("Parsed config successfully!\n", .{});
+    print("Parsed config successfully!\n");
     print("Players: {}\n", .{config.players.items.len});
     print("Teams: {}\n", .{config.teams.items.len});
     print("Map name: {?s}\n", .{config.mapname});
 
-    // JSON output should work now
+    // Test skill parsing
+    if (config.players.items.len > 0) {
+        const player = &config.players.items[0];
+        print("Player 0 skill: ");
+        if (player.skill) |skill| {
+            for (skill) |s| {
+                print("{d} ", .{s});
+            }
+        }
+        print("\n");
+        print("Player 0 skilluncertainty: {?d}\n", .{player.skilluncertainty});
+    }
+
+    // Test RGB color parsing
+    if (config.teams.items.len > 0) {
+        const team = &config.teams.items[0];
+        print("Team 0 RGB color: ");
+        if (team.rgbcolor) |color| {
+            for (color) |c| {
+                print("{d} ", .{c});
+            }
+        }
+        print("\n");
+    }
+
+    // JSON output test
     const json_output = try config.toJson(allocator);
     defer allocator.free(json_output);
-    print("Parsed config as JSON:\n{s}\n", .{json_output});
+    print("\nJSON output:\n{s}\n", .{json_output});
 }
