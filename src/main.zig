@@ -333,7 +333,6 @@ const DemofileHeader = struct {
 
     pub fn deinit(self: *DemofileHeader) void {
         if (self.magic.len > 0) self.allocator.free(self.magic);
-        if (self.game_version.len > 0) self.allocator.free(self.game_version);
         if (self.game_id.len > 0) self.allocator.free(self.game_id);
     }
 };
@@ -431,10 +430,6 @@ const StreamingByteReader = struct {
             byte.* = try self.readU8();
         }
         return result;
-    }
-
-    pub fn readAsciiString(self: *StreamingByteReader, len: usize) ![]u8 {
-        return self.readBytes(len);
     }
 
     pub fn readAsciiStringNullTerminated(self: *StreamingByteReader, max_len: usize) ![]u8 {
@@ -546,8 +541,10 @@ const BarDemofileParser = struct {
         match.header.header_version = try reader.readI32LE();
         match.header.header_size = try reader.readI32LE();
 
-        const game_version = try reader.readAsciiString(256);
-        match.header.game_version = game_version;
+        const game_version = try reader.readBytes(256);
+        defer self.allocator.free(game_version);
+        const null_terminated_version = std.mem.trim(u8, game_version, "\x00");
+        match.header.game_version = null_terminated_version;
 
         const game_id_bytes = try reader.readBytes(16);
         defer self.allocator.free(game_id_bytes);
@@ -577,7 +574,7 @@ const BarDemofileParser = struct {
 
         // Read script if present
         if (match.header.script_size > 0) {
-            const script = try reader.readAsciiString(@intCast(match.header.script_size));
+            const script = try reader.readBytes(@intCast(match.header.script_size));
             defer self.allocator.free(script);
             match.game_config = try gameconfig_parser.parseScript(self.allocator, script);
         }
