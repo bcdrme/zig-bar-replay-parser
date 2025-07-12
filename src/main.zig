@@ -574,6 +574,11 @@ const BarDemofileParser = struct {
     }
 };
 
+pub fn parseDemofile(allocator: Allocator, filename: []const u8, demofile: []const u8) !BarMatch {
+    var parser = BarDemofileParser.init(allocator);
+    return parser.parse(filename, demofile);
+}
+
 // Usage example
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -592,10 +597,15 @@ pub fn main() !void {
         return;
     }
 
+    print("Arguments: {s}\n", .{args});
+
     const file_path = args[1];
     const mode_str = if (args.len > 2) args[2] else "header";
 
     const mode = if (std.mem.eql(u8, mode_str, "header")) ParseMode.HEADER_ONLY else if (std.mem.eql(u8, mode_str, "metadata")) ParseMode.METADATA_ONLY else if (std.mem.eql(u8, mode_str, "essential")) ParseMode.ESSENTIAL_ONLY else if (std.mem.eql(u8, mode_str, "full")) ParseMode.FULL else ParseMode.HEADER_ONLY;
+
+    // const mode = ParseMode.METADATA_ONLY; // Change this to test different modes
+    // const file_path = "/sandbox/2025-07-02_22-18-20-632_All That Simmers v1.1_2025.04.08.sdfz"; // Example path
 
     const file_data = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024 * 500); // 500MB max
     defer allocator.free(file_data);
