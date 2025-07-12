@@ -739,28 +739,6 @@ pub fn parseDemofile(allocator: Allocator, filename: []const u8, demofile: []con
     return parser.parse(filename, demofile);
 }
 
-// Export a function that copies JSON to a buffer
-// export fn copyJson(demofile_path: [*]u8, buffer: [*]u8) void {
-//     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//     defer _ = gpa.deinit();
-//     const allocator = gpa.allocator();
-
-//     var parser = BarDemofileParser.init(allocator);
-//     var match = parser.parse(demofile_path, demofile_path) catch |err| {
-//         std.debug.print("Error parsing demofile: {}\n", .{err});
-//         return;
-//     };
-//     defer match.deinit();
-
-//     const json = match.game_config.toJson(allocator) catch |err| {
-//         std.debug.print("Error converting to JSON: {}\n", .{err});
-//         return;
-//     };
-
-//     std.mem.copy(u8, buffer, json);
-// }
-
-// Usage example
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -807,4 +785,108 @@ pub fn main() !void {
     const json = try match.toJson(allocator);
     defer allocator.free(json);
     print("Game Config JSON: \n{s}\n", .{json});
+}
+
+// WASM handles
+
+// Global variables to store the result (use a simple approach)
+var global_json_result: [1024 * 1024]u8 = undefined; // 1MB buffer
+var global_json_length: u32 = 0;
+var global_error_message: [1024]u8 = undefined;
+var global_error_length: usize = 0;
+
+// Simple exported function that takes a file path and returns length of JSON (0 if error)
+export fn parse_demo_file(file_path_ptr: [*]const u8, file_path_len: u32, mode: u8) u32 {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    // Reset global state
+    global_json_length = 0;
+    global_error_length = 0;
+
+    // Convert C string to Zig slice
+    const file_path = file_path_ptr[0..file_path_len];
+
+    // Convert mode number to ParseMode
+    const parse_mode = switch (mode) {
+        0 => ParseMode.HEADER_ONLY,
+        1 => ParseMode.METADATA_ONLY,
+        2 => ParseMode.ESSENTIAL_ONLY,
+        3 => ParseMode.FULL,
+        else => ParseMode.METADATA_ONLY,
+    };
+
+    // Parse the demo file
+    const result = parseDemoFileInternal(allocator, file_path, parse_mode);
+
+    if (result) |json| {
+        defer allocator.free(json);
+
+        // Copy to global buffer
+        if (json.len <= global_json_result.len) {
+            @memcpy(global_json_result[0..json.len], json);
+            global_json_length = @intCast(json.len);
+            return global_json_length;
+        } else {
+            // JSON too large
+            const error_msg = "JSON result too large for buffer";
+            @memcpy(global_error_message[0..error_msg.len], error_msg);
+            global_error_length = error_msg.len;
+            return 0;
+        }
+    } else |err| {
+        // Store error message
+        const error_msg = switch (err) {
+            error.FileNotFound => "File not found",
+            error.AccessDenied => "Access denied",
+            error.OutOfMemory => "Out of memory",
+            error.InvalidMagic => "Invalid demo file format",
+            error.InvalidGameId => "Invalid game ID",
+            error.DecompressionTooLarge => "Decompression too large",
+            else => "Unknown error",
+        };
+
+        @memcpy(global_error_message[0..error_msg.len], error_msg);
+        global_error_length = error_msg.len;
+        return 0;
+    }
+}
+
+// Get the JSON result buffer pointer
+export fn get_json_buffer() [*]u8 {
+    return &global_json_result;
+}
+
+// Get the error message buffer pointer
+export fn get_error_buffer() [*]u8 {
+    return &global_error_message;
+}
+
+// Get error message length
+export fn get_error_length() usize {
+    return global_error_length;
+}
+
+// Internal parsing function (same as before)
+fn parseDemoFileInternal(allocator: Allocator, file_name: []const u8, mode: ParseMode) ![]u8 {
+    // Read the file
+    const file_data = std.fs.cwd().readFileAlloc(allocator, file_name, 1024 * 1024 * 500) catch |err| {
+        return err;
+    };
+    defer allocator.free(file_data);
+
+    // Parse the demo file
+    var parser = BarDemofileParser.init(allocator);
+    var match = parser.parseWithMode(file_name, file_data, mode) catch |err| {
+        return err;
+    };
+    defer match.deinit();
+
+    // Convert to JSON
+    const json = match.toJson(allocator) catch |err| {
+        return err;
+    };
+
+    return json;
 }
