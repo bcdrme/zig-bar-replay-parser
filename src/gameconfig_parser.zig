@@ -36,19 +36,14 @@ const SerializableAllyTeam = struct {
     numallies: ?u32 = null,
 };
 
-const SerializableKeyValue = struct {
-    key: []const u8,
-    value: []const u8,
-};
-
 const SerializableGameConfig = struct {
     players: []SerializablePlayer,
     teams: []SerializableTeam,
     allyteams: []SerializableAllyTeam,
-    modoptions: ?[]SerializableKeyValue = null,
-    mapoptions: ?[]SerializableKeyValue = null,
-    hostoptions: ?[]SerializableKeyValue = null,
-    restrict: ?[]SerializableKeyValue = null,
+    modoptions: ?StringMap = null,
+    mapoptions: ?StringMap = null,
+    hostoptions: ?StringMap = null,
+    restrict: ?StringMap = null,
     // Global properties
     ishost: ?u32 = null,
     hostip: ?[]const u8 = null,
@@ -264,18 +259,6 @@ const GameConfig = struct {
         }
     }
 
-    fn stringMapToKeyValueArray(map: *const StringMap, allocator: Allocator) ![]SerializableKeyValue {
-        var result = ArrayList(SerializableKeyValue).init(allocator);
-        var iterator = map.iterator();
-        while (iterator.next()) |entry| {
-            try result.append(SerializableKeyValue{
-                .key = entry.key_ptr.*,
-                .value = entry.value_ptr.*,
-            });
-        }
-        return result.toOwnedSlice();
-    }
-
     pub fn toJson(self: *const Self, allocator: Allocator) ![]u8 {
         return self.toJsonCustom(allocator);
     }
@@ -313,36 +296,36 @@ const GameConfig = struct {
         // Modoptions section
         try json_str.appendSlice("  \"modoptions\": ");
         if (self.modoptions) |*map| {
-            try self.writeKeyValueArray(&json_str, map);
+            try self.writeKeyValueObject(&json_str, map);
         } else {
-            try json_str.appendSlice("[]");
+            try json_str.appendSlice("{}");
         }
         try json_str.appendSlice(",\n");
 
         // Mapoptions section
         try json_str.appendSlice("  \"mapoptions\": ");
         if (self.mapoptions) |*map| {
-            try self.writeKeyValueArray(&json_str, map);
+            try self.writeKeyValueObject(&json_str, map);
         } else {
-            try json_str.appendSlice("[]");
+            try json_str.appendSlice("{}");
         }
         try json_str.appendSlice(",\n");
 
         // Hostoptions section
         try json_str.appendSlice("  \"hostoptions\": ");
         if (self.hostoptions) |*map| {
-            try self.writeKeyValueArray(&json_str, map);
+            try self.writeKeyValueObject(&json_str, map);
         } else {
-            try json_str.appendSlice("[]");
+            try json_str.appendSlice("{}");
         }
         try json_str.appendSlice(",\n");
 
         // Restrict section
         try json_str.appendSlice("  \"restrict\": ");
         if (self.restrict) |*map| {
-            try self.writeKeyValueArray(&json_str, map);
+            try self.writeKeyValueObject(&json_str, map);
         } else {
-            try json_str.appendSlice("[]");
+            try json_str.appendSlice("{}");
         }
         try json_str.appendSlice(",\n");
 
@@ -354,21 +337,21 @@ const GameConfig = struct {
         return json_str.toOwnedSlice();
     }
 
-    fn writeKeyValueArray(self: *const Self, json_str: *ArrayList(u8), map: *const StringMap) !void {
+    fn writeKeyValueObject(self: *const Self, json_str: *ArrayList(u8), map: *const StringMap) !void {
         _ = self;
-        try json_str.appendSlice("[\n");
+        try json_str.appendSlice("{\n");
         var iterator = map.iterator();
         var first = true;
         while (iterator.next()) |entry| {
             if (!first) try json_str.appendSlice(",\n");
             first = false;
-            try json_str.appendSlice("    { \"key\": \"");
+            try json_str.appendSlice("    \"");
             try json_str.appendSlice(entry.key_ptr.*);
-            try json_str.appendSlice("\", \"value\": \"");
+            try json_str.appendSlice("\": \"");
             try json_str.appendSlice(entry.value_ptr.*);
-            try json_str.appendSlice("\" }");
+            try json_str.appendSlice("\"");
         }
-        try json_str.appendSlice("\n  ]");
+        try json_str.appendSlice("\n  }");
     }
 
     fn writePlayer(self: *const Self, json_str: *ArrayList(u8), player: *const Player) !void {
