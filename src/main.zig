@@ -111,114 +111,113 @@ const BarMatch = struct {
         var json_str = ArrayList(u8).init(allocator);
         defer json_str.deinit();
 
-        try json_str.appendSlice("{\n");
+        try json_str.appendSlice("{");
 
         // Header section
-        try json_str.appendSlice("  \"header\": {\n");
-        try json_str.appendSlice("    \"magic\": \"");
+        try json_str.appendSlice("\"header\":{");
+        try json_str.appendSlice("\"magic\":\"");
         try json_str.appendSlice(self.header.magic);
-        try json_str.appendSlice("\",\n");
+        try json_str.appendSlice("\",");
 
-        try json_str.appendSlice("    \"header_version\": ");
+        try json_str.appendSlice("\"header_version\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.header_version});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
-        try json_str.appendSlice("    \"header_size\": ");
+        try json_str.appendSlice("\"header_size\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.header_size});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
-        try json_str.appendSlice("    \"game_version\": \"");
+        try json_str.appendSlice("\"game_version\":\"");
         try json_str.appendSlice(self.header.game_version);
-        try json_str.appendSlice("\",\n");
+        try json_str.appendSlice("\",");
 
-        try json_str.appendSlice("    \"game_id\": \"");
+        try json_str.appendSlice("\"game_id\":\"");
         try json_str.appendSlice(self.header.game_id);
-        try json_str.appendSlice("\",\n");
+        try json_str.appendSlice("\",");
 
-        try json_str.appendSlice("    \"start_time\": ");
+        try json_str.appendSlice("\"start_time\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.start_time});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
-        try json_str.appendSlice("    \"script_size\": ");
+        try json_str.appendSlice("\"script_size\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.script_size});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
-        try json_str.appendSlice("    \"demo_stream_size\": ");
+        try json_str.appendSlice("\"demo_stream_size\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.demo_stream_size});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
-        try json_str.appendSlice("    \"game_time\": ");
+        try json_str.appendSlice("\"game_time\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.game_time});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
-        try json_str.appendSlice("    \"wall_clock_time\": ");
+        try json_str.appendSlice("\"wall_clock_time\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.wall_clock_time});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
-        try json_str.appendSlice("    \"player_count\": ");
+        try json_str.appendSlice("\"player_count\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.player_count});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
-        try json_str.appendSlice("    \"player_stat_size\": ");
+        try json_str.appendSlice("\"player_stat_size\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.player_stat_size});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
-        try json_str.appendSlice("    \"player_stat_elem_size\": ");
+        try json_str.appendSlice("\"player_stat_elem_size\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.player_stat_elem_size});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
-        try json_str.appendSlice("    \"team_count\": ");
+        try json_str.appendSlice("\"team_count\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.team_count});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
-        try json_str.appendSlice("    \"team_stat_size\": ");
+        try json_str.appendSlice("\"team_stat_size\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.team_stat_size});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
-        try json_str.appendSlice("    \"team_stat_elem_size\": ");
+        try json_str.appendSlice("\"team_stat_elem_size\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.team_stat_elem_size});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
-        try json_str.appendSlice("    \"team_stat_period\": ");
+        try json_str.appendSlice("\"team_stat_period\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.team_stat_period});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
-        try json_str.appendSlice("    \"winning_ally_teams_size\": ");
+        try json_str.appendSlice("\"winning_ally_teams_size\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.header.winning_ally_teams_size});
-        try json_str.appendSlice("\n");
 
-        try json_str.appendSlice("  },\n");
+        try json_str.appendSlice("},");
 
         // File name
-        try json_str.appendSlice("  \"file_name\": \"");
+        try json_str.appendSlice("\"file_name\":\"");
         try json_str.appendSlice(self.file_name);
-        try json_str.appendSlice("\",\n");
+        try json_str.appendSlice("\",");
 
         // Duration frame count
-        try json_str.appendSlice("  \"duration_frame_count\": ");
+        try json_str.appendSlice("\"duration_frame_count\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.duration_frame_count});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
         // Packet offset
-        try json_str.appendSlice("  \"packet_offset\": ");
+        try json_str.appendSlice("\"packet_offset\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.packet_offset});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
         // Stat offset
-        try json_str.appendSlice("  \"stat_offset\": ");
+        try json_str.appendSlice("\"stat_offset\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.stat_offset});
-        try json_str.appendSlice(",\n");
+        try json_str.appendSlice(",");
 
         // Winning ally teams
-        try json_str.appendSlice("  \"winning_ally_teams\": [");
+        try json_str.appendSlice("\"winning_ally_teams\":[");
         for (self.winning_ally_teams.items, 0..) |team_id, i| {
-            if (i > 0) try json_str.appendSlice(", ");
+            if (i > 0) try json_str.appendSlice(",");
             try std.fmt.format(json_str.writer(), "{d}", .{team_id});
         }
-        try json_str.appendSlice("],\n");
+        try json_str.appendSlice("],");
 
         // Gamemode
-        try json_str.appendSlice("  \"gamemode\": \"");
+        try json_str.appendSlice("\"gamemode\":\"");
         try json_str.appendSlice(switch (self.gamemode) {
             .DUEL => "DUEL",
             .SMALL_TEAM => "SMALL_TEAM",
@@ -227,72 +226,60 @@ const BarMatch = struct {
             .TEAM_FFA => "TEAM_FFA",
             .UNKNOWN => "UNKNOWN",
         });
-        try json_str.appendSlice("\",\n");
+        try json_str.appendSlice("\",");
 
         // Chat messages
-        try json_str.appendSlice("  \"chat_messages\": [\n");
+        try json_str.appendSlice("\"chat_messages\":[");
         for (self.chat_messages.items, 0..) |msg, i| {
-            if (i > 0) try json_str.appendSlice(",\n");
-            try json_str.appendSlice("    {\n");
-            try json_str.appendSlice("      \"size\": ");
+            if (i > 0) try json_str.appendSlice(",");
+            try json_str.appendSlice("{");
+            try json_str.appendSlice("\"size\":");
             try std.fmt.format(json_str.writer(), "{d}", .{msg.size});
-            try json_str.appendSlice(",\n");
-            try json_str.appendSlice("      \"from_id\": ");
+            try json_str.appendSlice(",");
+            try json_str.appendSlice("\"from_id\":");
             try std.fmt.format(json_str.writer(), "{d}", .{msg.from_id});
-            try json_str.appendSlice(",\n");
-            try json_str.appendSlice("      \"to_id\": ");
+            try json_str.appendSlice(",");
+            try json_str.appendSlice("\"to_id\":");
             try std.fmt.format(json_str.writer(), "{d}", .{msg.to_id});
-            try json_str.appendSlice(",\n");
-            try json_str.appendSlice("      \"message\": \"");
+            try json_str.appendSlice(",");
+            try json_str.appendSlice("\"message\":\"");
             try json_str.appendSlice(msg.message);
-            try json_str.appendSlice("\",\n");
-            try json_str.appendSlice("      \"game_id\": \"");
+            try json_str.appendSlice("\",");
+            try json_str.appendSlice("\"game_id\":\"");
             try json_str.appendSlice(msg.game_id);
-            try json_str.appendSlice("\",\n");
-            try json_str.appendSlice("      \"game_timestamp\": ");
+            try json_str.appendSlice("\",");
+            try json_str.appendSlice("\"game_timestamp\":");
             try std.fmt.format(json_str.writer(), "{d:.6}", .{msg.game_timestamp});
-            try json_str.appendSlice("\n");
-            try json_str.appendSlice("    }");
+            try json_str.appendSlice("}");
         }
-        try json_str.appendSlice("\n  ],\n");
+        try json_str.appendSlice("],");
 
         // Team deaths
-        try json_str.appendSlice("  \"team_deaths\": [\n");
+        try json_str.appendSlice("\"team_deaths\":[");
         for (self.team_deaths.items, 0..) |death, i| {
-            if (i > 0) try json_str.appendSlice(",\n");
-            try json_str.appendSlice("    {\n");
-            try json_str.appendSlice("      \"game_id\": \"");
+            if (i > 0) try json_str.appendSlice(",");
+            try json_str.appendSlice("{");
+            try json_str.appendSlice("\"game_id\":\"");
             try json_str.appendSlice(death.game_id);
-            try json_str.appendSlice("\",\n");
-            try json_str.appendSlice("      \"team_id\": ");
+            try json_str.appendSlice("\",");
+            try json_str.appendSlice("\"team_id\":");
             try std.fmt.format(json_str.writer(), "{d}", .{death.team_id});
-            try json_str.appendSlice(",\n");
-            try json_str.appendSlice("      \"reason\": ");
+            try json_str.appendSlice(",");
+            try json_str.appendSlice("\"reason\":");
             try std.fmt.format(json_str.writer(), "{d}", .{death.reason});
-            try json_str.appendSlice(",\n");
-            try json_str.appendSlice("      \"game_time\": ");
+            try json_str.appendSlice(",");
+            try json_str.appendSlice("\"game_time\":");
             try std.fmt.format(json_str.writer(), "{d:.6}", .{death.game_time});
-            try json_str.appendSlice("\n");
-            try json_str.appendSlice("    }");
+            try json_str.appendSlice("}");
         }
-        try json_str.appendSlice("\n  ],\n");
+        try json_str.appendSlice("],");
 
-        // Game config - use the existing toJson method and adjust indentation
-        try json_str.appendSlice("  \"game_config\": ");
+        // Game config - use the existing toJson method (now compact)
+        try json_str.appendSlice("\"game_config\":");
         const game_config_json = try self.game_config.toJson(allocator);
         defer allocator.free(game_config_json);
+        try json_str.appendSlice(game_config_json);
 
-        // Add proper indentation to each line of the game_config JSON
-        var lines = std.mem.splitSequence(u8, game_config_json, "\n");
-        var first_line = true;
-        while (lines.next()) |line| {
-            if (!first_line) {
-                try json_str.appendSlice("\n  "); // Add base indentation for this level
-            }
-            first_line = false;
-            try json_str.appendSlice(line);
-        }
-        try json_str.appendSlice("\n");
         try json_str.appendSlice("}");
         return json_str.toOwnedSlice();
     }
@@ -784,7 +771,7 @@ pub fn main() !void {
     // Convert to JSON and print
     const json = try match.toJson(allocator);
     defer allocator.free(json);
-    print("Game Config JSON: \n{s}\n", .{json});
+    print("BarMatch JSON: \n{s}\n", .{json});
 }
 
 // WASM handles
