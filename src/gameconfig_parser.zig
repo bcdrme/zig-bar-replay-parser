@@ -36,34 +36,6 @@ const SerializableAllyTeam = struct {
     numallies: ?u32 = null,
 };
 
-const SerializableGameConfig = struct {
-    players: []SerializablePlayer,
-    teams: []SerializableTeam,
-    allyteams: []SerializableAllyTeam,
-    modoptions: ?StringMap = null,
-    mapoptions: ?StringMap = null,
-    hostoptions: ?StringMap = null,
-    restrict: ?StringMap = null,
-    // Global properties
-    ishost: ?u32 = null,
-    hostip: ?[]const u8 = null,
-    numallyteams: ?u32 = null,
-    server_match_id: ?u32 = null,
-    numteams: ?u32 = null,
-    startpostype: ?u32 = null,
-    gametype: ?[]const u8 = null,
-    hosttype: ?[]const u8 = null,
-    mapname: ?[]const u8 = null,
-    autohostport: ?u32 = null,
-    numrestrictions: ?u32 = null,
-    autohostname: ?[]const u8 = null,
-    autohostrank: ?u32 = null,
-    autohostaccountid: ?u32 = null,
-    numplayers: ?u32 = null,
-    autohostcountrycode: ?[]const u8 = null,
-    hostport: ?u32 = null,
-};
-
 // Player structure
 const Player = struct {
     id: u32,
@@ -174,7 +146,7 @@ const AllyTeam = struct {
 const StringMap = HashMap([]const u8, []const u8, std.hash_map.StringContext, std.hash_map.default_max_load_percentage);
 
 // Main game configuration structure
-const GameConfig = struct {
+pub const GameConfig = struct {
     players: ArrayList(Player),
     teams: ArrayList(Team),
     allyteams: ArrayList(AllyTeam),
@@ -949,7 +921,7 @@ const GameConfigParser = struct {
     }
 };
 
-pub fn parseModOptions(allocator: Allocator, input: []const u8) !GameConfig {
+pub fn parseScript(allocator: Allocator, input: []const u8) !GameConfig {
     var parser = GameConfigParser.init(allocator);
     return parser.parse(input);
 }
@@ -1004,7 +976,7 @@ pub fn main() !void {
         \\mapname=Test Map;
     ;
 
-    var config = try parseModOptions(allocator, sample_input);
+    var config = try parseScript(allocator, sample_input);
     defer config.deinit();
 
     print("Parsed config successfully!\n");

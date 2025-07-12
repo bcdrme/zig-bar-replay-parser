@@ -37,22 +37,6 @@ const Vector3 = struct {
     z: f32,
 };
 
-// Player structures
-const BarMatchPlayer = struct {
-    team_id: i32,
-    game_id: []const u8,
-    ally_team_id: i32,
-    player_id: i32,
-    user_id: i64,
-    name: []const u8,
-    handicap: f64 = 0.0,
-    faction: []const u8,
-    skill_uncertainty: f64,
-    skill: f64,
-    starting_position: ?Vector3 = null,
-    color: u32 = 0,
-};
-
 const BarMatchChatMessage = struct {
     size: u8,
     from_id: u8,
@@ -83,13 +67,12 @@ const BarGamemode = enum {
 const BarMatch = struct {
     header: DemofileHeader,
     file_name: []const u8,
-    mod_config: []const u8,
+    game_config: gameconfig_parser.GameConfig,
     duration_frame_count: i32 = 0,
     packet_offset: usize = 0,
     stat_offset: usize = 0,
     winning_ally_teams: ArrayList(u8),
     gamemode: BarGamemode = .UNKNOWN,
-    players: ArrayList(BarMatchPlayer),
     chat_messages: ArrayList(BarMatchChatMessage),
     team_deaths: ArrayList(BarMatchTeamDeath),
     allocator: Allocator,
@@ -98,9 +81,8 @@ const BarMatch = struct {
         return BarMatch{
             .header = DemofileHeader.init(allocator),
             .file_name = "",
-            .mod_config = "",
+            .game_config = gameconfig_parser.GameConfig.init(allocator),
             .winning_ally_teams = ArrayList(u8).init(allocator),
-            .players = ArrayList(BarMatchPlayer).init(allocator),
             .chat_messages = ArrayList(BarMatchChatMessage).init(allocator),
             .team_deaths = ArrayList(BarMatchTeamDeath).init(allocator),
             .allocator = allocator,
@@ -110,15 +92,8 @@ const BarMatch = struct {
     pub fn deinit(self: *BarMatch) void {
         self.header.deinit();
         if (self.file_name.len > 0) self.allocator.free(self.file_name);
-        if (self.mod_config.len > 0) self.allocator.free(self.mod_config);
+        self.game_config.deinit();
         self.winning_ally_teams.deinit();
-
-        for (self.players.items) |player| {
-            if (player.game_id.len > 0) self.allocator.free(player.game_id);
-            if (player.name.len > 0) self.allocator.free(player.name);
-            if (player.faction.len > 0) self.allocator.free(player.faction);
-        }
-        self.players.deinit();
 
         for (self.chat_messages.items) |msg| {
             if (msg.message.len > 0) self.allocator.free(msg.message);
@@ -419,22 +394,15 @@ const BarDemofileParser = struct {
 
         // Early exit for header-only mode
         if (mode == .HEADER_ONLY) {
-            match.mod_config = try self.allocator.dupe(u8, "");
+            match.game_config = gameconfig_parser.GameConfig.init(self.allocator);
             return match;
         }
 
-        // Read mod config
+        // Read script if present
         if (match.header.script_size > 0) {
-            if (mode == .METADATA_ONLY and match.header.script_size > 100 * 1024) {
-                // Skip large mod configs in metadata-only mode
-                try reader.skipBytes(@intCast(match.header.script_size));
-                match.mod_config = try self.allocator.dupe(u8, "[skipped - too large]");
-            } else {
-                const mod_config = try reader.readAsciiString(@intCast(match.header.script_size));
-                match.mod_config = mod_config;
-            }
-        } else {
-            match.mod_config = try self.allocator.dupe(u8, "");
+            const script = try reader.readAsciiString(@intCast(match.header.script_size));
+            defer self.allocator.free(script);
+            match.game_config = try gameconfig_parser.parseScript(self.allocator, script);
         }
 
         // Early exit for metadata-only mode
@@ -629,7 +597,6 @@ pub fn main() !void {
     print("Duration (ms): {}\n", .{match.header.wall_clock_time * 1000});
     print("Player Count: {}\n", .{match.header.player_count});
     print("Team Count: {}\n", .{match.header.team_count});
-    print("Mod Config Length: {}\n", .{match.mod_config.len});
 
     if (mode != .HEADER_ONLY and mode != .METADATA_ONLY) {
         print("Chat Messages: {}\n", .{match.chat_messages.items.len});
@@ -639,18 +606,8 @@ pub fn main() !void {
     }
 
     print("\nParser completed successfully! [mode: {}]\n", .{mode});
-
     print("\nMod config:\n", .{});
-    if (match.mod_config.len > 0) {
-        print("{s}\n", .{match.mod_config});
-    } else {
-        print("No mod config found.\n", .{});
-    }
-
-    var modoption = try gameconfig_parser.parseModOptions(allocator, match.mod_config);
-    defer modoption.deinit();
-
-    const json_output = try modoption.toJson(allocator);
-    defer allocator.free(json_output);
-    print("Parsed config as JSON:\n{s}\n", .{json_output});
+    const json_config = try match.game_config.toJson(allocator);
+    defer allocator.free(json_config);
+    print("{s}\n", .{json_config});
 }
