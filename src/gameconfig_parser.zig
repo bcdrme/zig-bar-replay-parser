@@ -42,7 +42,6 @@ const SerializableKeyValue = struct {
 };
 
 const SerializableGameConfig = struct {
-    game: ?[]SerializableKeyValue = null,
     players: []SerializablePlayer,
     teams: []SerializableTeam,
     allyteams: []SerializableAllyTeam,
@@ -181,7 +180,6 @@ const StringMap = HashMap([]const u8, []const u8, std.hash_map.StringContext, st
 
 // Main game configuration structure
 const GameConfig = struct {
-    game: ?StringMap = null,
     players: ArrayList(Player),
     teams: ArrayList(Team),
     allyteams: ArrayList(AllyTeam),
@@ -232,9 +230,6 @@ const GameConfig = struct {
         self.teams.deinit();
         self.allyteams.deinit();
 
-        if (self.game) |*map| {
-            deinitStringMap(map, self.allocator);
-        }
         if (self.modoptions) |*map| {
             deinitStringMap(map, self.allocator);
         }
@@ -290,15 +285,6 @@ const GameConfig = struct {
         defer json_str.deinit();
 
         try json_str.appendSlice("{\n");
-
-        // Game section
-        try json_str.appendSlice("  \"game\": ");
-        if (self.game) |*map| {
-            try self.writeKeyValueArray(&json_str, map);
-        } else {
-            try json_str.appendSlice("[]");
-        }
-        try json_str.appendSlice(",\n");
 
         // Players section
         try json_str.appendSlice("  \"players\": [\n");
@@ -728,10 +714,7 @@ const GameConfigParser = struct {
                 current_map = null;
 
                 // Initialize section-specific storage
-                if (std.mem.eql(u8, section_name, "game")) {
-                    config.game = StringMap.init(self.allocator);
-                    current_map = &config.game.?;
-                } else if (std.mem.eql(u8, section_name, "modoptions")) {
+                if (std.mem.eql(u8, section_name, "modoptions")) {
                     config.modoptions = StringMap.init(self.allocator);
                     current_map = &config.modoptions.?;
                 } else if (std.mem.eql(u8, section_name, "mapoptions")) {
@@ -995,9 +978,6 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const sample_input =
-        \\[game]
-        \\{
-        \\}
         \\[player0]
         \\{
         \\team=0;
