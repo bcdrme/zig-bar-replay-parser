@@ -383,7 +383,7 @@ const ParseState = enum {
 };
 
 // Parser structure
-const ModOptionParser = struct {
+const GameConfigParser = struct {
     allocator: Allocator,
 
     const Self = @This();
@@ -658,8 +658,8 @@ const ModOptionParser = struct {
     }
 };
 
-fn parseModOptions(allocator: Allocator, input: []const u8) !GameConfig {
-    var parser = ModOptionParser.init(allocator);
+pub fn parseModOptions(allocator: Allocator, input: []const u8) !GameConfig {
+    var parser = GameConfigParser.init(allocator);
     return parser.parse(input);
 }
 

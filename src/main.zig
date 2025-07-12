@@ -1,4 +1,6 @@
 const std = @import("std");
+const gameconfig_parser = @import("gameconfig_parser.zig");
+
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
@@ -644,4 +646,11 @@ pub fn main() !void {
     } else {
         print("No mod config found.\n", .{});
     }
+
+    var modoption = try gameconfig_parser.parseModOptions(allocator, match.mod_config);
+    defer modoption.deinit();
+
+    const json_output = try modoption.toJson(allocator);
+    defer allocator.free(json_output);
+    print("Parsed config as JSON:\n{s}\n", .{json_output});
 }
