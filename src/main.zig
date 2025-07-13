@@ -420,6 +420,7 @@ const DemofileHeader = struct {
 
     pub fn deinit(self: *DemofileHeader) void {
         if (self.magic.len > 0) self.allocator.free(self.magic);
+        if (self.game_version.len > 0) self.allocator.free(self.game_version);
         if (self.game_id.len > 0) self.allocator.free(self.game_id);
     }
 };
@@ -612,6 +613,127 @@ const BarDemofileParser = struct {
         return self.parseWithMode(filename, demofile, .METADATA_ONLY);
     }
 
+    // Packet types (NETMSG from NetMessageTypes.h)
+    // https://github.com/beyond-all-reason/RecoilEngine/blob/master/rts/Net/Protocol/NetMessageTypes.h
+    const NETMSG = struct {
+        const KEYFRAME: u8 = 1;
+        const NEWFRAME: u8 = 2;
+        const QUIT: u8 = 3;
+        const STARTPLAYING: u8 = 4;
+        const SETPLAYERNUM: u8 = 5;
+        const PLAYERNAME: u8 = 6;
+        const CHAT: u8 = 7;
+        const RANDSEED: u8 = 8;
+        const GAMEID: u8 = 9;
+        const PATH_CHECKSUM: u8 = 10;
+        const COMMAND: u8 = 11;
+        const SELECT: u8 = 12;
+        const PAUSE: u8 = 13;
+        const AICOMMAND: u8 = 14;
+        const AICOMMANDS: u8 = 15;
+        const AISHARE: u8 = 16;
+        const USER_SPEED: u8 = 19;
+        const INTERNAL_SPEED: u8 = 20;
+        const CPU_USAGE: u8 = 21;
+        const DIRECT_CONTROL: u8 = 22;
+        const DC_UPDATE: u8 = 23;
+        const SHARE: u8 = 26;
+        const SETSHARE: u8 = 27;
+        const PLAYERSTAT: u8 = 29;
+        const GAMEOVER: u8 = 30;
+        const MAPDRAW_OLD: u8 = 31;
+        const MAPDRAW: u8 = 32;
+        const SYNCRESPONSE: u8 = 33;
+        const SYSTEMMSG: u8 = 35;
+        const STARTPOS: u8 = 36;
+        const PLAYERINFO: u8 = 38;
+        const PLAYERLEFT: u8 = 39;
+        const SD_CHKREQUEST: u8 = 41;
+        const SD_CHKRESPONSE: u8 = 42;
+        const SD_BLKREQUEST: u8 = 43;
+        const SD_BLKRESPONSE: u8 = 44;
+        const SD_RESET: u8 = 45;
+        const GAMESTATE_DUMP: u8 = 46;
+        const LOGMSG: u8 = 49;
+        const LUAMSG: u8 = 50;
+        const TEAM: u8 = 51;
+        const GAMEDATA: u8 = 52;
+        const ALLIANCE: u8 = 53;
+        const CCOMMAND: u8 = 54;
+        const TEAMSTAT: u8 = 60;
+        const CLIENTDATA: u8 = 61;
+        const ATTEMPTCONNECT: u8 = 65;
+        const REJECTCONNECT: u8 = 66;
+        const AI_CREATED: u8 = 70;
+        const AI_STATE_CHANGED: u8 = 71;
+        const REQUEST_TEAMSTAT: u8 = 72;
+        const CREATE_NEWPLAYER: u8 = 75;
+        const AICOMMAND_TRACKED: u8 = 76;
+        const GAME_FRAME_PROGRESS: u8 = 77;
+        const PING: u8 = 78;
+    };
+
+    fn netmsgToString(netmsg: u8) []const u8 {
+        return switch (netmsg) {
+            NETMSG.KEYFRAME => "NETMSG_KEYFRAME",
+            NETMSG.NEWFRAME => "NETMSG_NEWFRAME",
+            NETMSG.QUIT => "NETMSG_QUIT",
+            NETMSG.STARTPLAYING => "NETMSG_STARTPLAYING",
+            NETMSG.SETPLAYERNUM => "NETMSG_SETPLAYERNUM",
+            NETMSG.PLAYERNAME => "NETMSG_PLAYERNAME",
+            NETMSG.CHAT => "NETMSG_CHAT",
+            NETMSG.RANDSEED => "NETMSG_RANDSEED",
+            NETMSG.GAMEID => "NETMSG_GAMEID",
+            NETMSG.PATH_CHECKSUM => "NETMSG_PATH_CHECKSUM",
+            NETMSG.COMMAND => "NETMSG_COMMAND",
+            NETMSG.SELECT => "NETMSG_SELECT",
+            NETMSG.PAUSE => "NETMSG_PAUSE",
+            NETMSG.AICOMMAND => "NETMSG_AICOMMAND",
+            NETMSG.AICOMMANDS => "NETMSG_AICOMMANDS",
+            NETMSG.AISHARE => "NETMSG_AISHARE",
+            NETMSG.USER_SPEED => "NETMSG_USER_SPEED",
+            NETMSG.INTERNAL_SPEED => "NETMSG_INTERNAL_SPEED",
+            NETMSG.CPU_USAGE => "NETMSG_CPU_USAGE",
+            NETMSG.DIRECT_CONTROL => "NETMSG_DIRECT_CONTROL",
+            NETMSG.DC_UPDATE => "NETMSG_DC_UPDATE",
+            NETMSG.SHARE => "NETMSG_SHARE",
+            NETMSG.SETSHARE => "NETMSG_SETSHARE",
+            NETMSG.PLAYERSTAT => "NETMSG_PLAYERSTAT",
+            NETMSG.GAMEOVER => "NETMSG_GAMEOVER",
+            NETMSG.MAPDRAW_OLD => "NETMSG_MAPDRAW_OLD",
+            NETMSG.MAPDRAW => "NETMSG_MAPDRAW",
+            NETMSG.SYNCRESPONSE => "NETMSG_SYNCRESPONSE",
+            NETMSG.SYSTEMMSG => "NETMSG_SYSTEMMSG",
+            NETMSG.STARTPOS => "NETMSG_STARTPOS",
+            NETMSG.PLAYERINFO => "NETMSG_PLAYERINFO",
+            NETMSG.PLAYERLEFT => "NETMSG_PLAYERLEFT",
+            NETMSG.SD_CHKREQUEST => "NETMSG_SD_CHKREQUEST",
+            NETMSG.SD_CHKRESPONSE => "NETMSG_SD_CHKRESPONSE",
+            NETMSG.SD_BLKREQUEST => "NETMSG_SD_BLKREQUEST",
+            NETMSG.SD_BLKRESPONSE => "NETMSG_SD_BLKRESPONSE",
+            NETMSG.SD_RESET => "NETMSG_SD_RESET",
+            NETMSG.GAMESTATE_DUMP => "NETMSG_GAMESTATE_DUMP",
+            NETMSG.LOGMSG => "NETMSG_LOGMSG",
+            NETMSG.LUAMSG => "NETMSG_LUAMSG",
+            NETMSG.TEAM => "NETMSG_TEAM",
+            NETMSG.GAMEDATA => "NETMSG_GAMEDATA",
+            NETMSG.ALLIANCE => "NETMSG_ALLIANCE",
+            NETMSG.CCOMMAND => "NETMSG_CCOMMAND",
+            NETMSG.TEAMSTAT => "NETMSG_TEAMSTAT",
+            NETMSG.CLIENTDATA => "NETMSG_CLIENTDATA",
+            NETMSG.ATTEMPTCONNECT => "NETMSG_ATTEMPTCONNECT",
+            NETMSG.REJECTCONNECT => "NETMSG_REJECTCONNECT",
+            NETMSG.AI_CREATED => "NETMSG_AI_CREATED",
+            NETMSG.AI_STATE_CHANGED => "NETMSG_AI_STATE_CHANGED",
+            NETMSG.REQUEST_TEAMSTAT => "NETMSG_REQUEST_TEAMSTAT",
+            NETMSG.CREATE_NEWPLAYER => "NETMSG_CREATE_NEWPLAYER",
+            NETMSG.AICOMMAND_TRACKED => "NETMSG_AICOMMAND_TRACKED",
+            NETMSG.GAME_FRAME_PROGRESS => "NETMSG_GAME_FRAME_PROGRESS",
+            NETMSG.PING => "NETMSG_PING",
+            else => "NETMSG_UNKNOWN",
+        };
+    }
+
     fn readBytesStreaming(self: *BarDemofileParser, filename: []const u8, reader: *StreamingByteReader, mode: ParseMode) !BarMatch {
         var match = BarMatch.init(self.allocator);
         errdefer match.deinit();
@@ -630,11 +752,19 @@ const BarDemofileParser = struct {
         match.header.header_version = try reader.readI32LE();
         match.header.header_size = try reader.readI32LE();
 
-        const game_version = try reader.readBytes(256);
-        defer self.allocator.free(game_version);
-        const null_terminated_version = std.mem.trim(u8, game_version, "\x00");
-        match.header.game_version = null_terminated_version;
+        // Read game version (256 bytes, null-terminated)
+        const game_version_bytes = try reader.readBytes(256);
+        defer self.allocator.free(game_version_bytes);
 
+        // Find null terminator and create proper string
+        var version_len: usize = 0;
+        for (game_version_bytes) |byte| {
+            if (byte == 0) break;
+            version_len += 1;
+        }
+        match.header.game_version = try self.allocator.dupe(u8, game_version_bytes[0..version_len]);
+
+        // Read game ID (16 bytes)
         const game_id_bytes = try reader.readBytes(16);
         defer self.allocator.free(game_id_bytes);
         var game_id_buf: [32]u8 = undefined;
@@ -666,6 +796,8 @@ const BarDemofileParser = struct {
             const script = try reader.readBytes(@intCast(match.header.script_size));
             defer self.allocator.free(script);
             match.game_config = try gameconfig_parser.parseScript(self.allocator, script);
+        } else {
+            match.game_config = gameconfig_parser.GameConfig.init(self.allocator);
         }
 
         // Early exit for metadata-only mode
@@ -674,7 +806,10 @@ const BarDemofileParser = struct {
         }
 
         // Parse packets (only for ESSENTIAL_ONLY and FULL modes)
-        const packet_count = try parsePacketsStreaming(reader, &match, mode);
+        const packet_count = parsePacketsStreaming(reader, &match, mode) catch |err| {
+            print("Warning: packet parsing failed: {}\n", .{err});
+            return match; // Return what we have so far
+        };
 
         print("packets parsed [gameID={s}] [packet count={}]\n", .{ match.header.game_id, packet_count });
 
@@ -687,24 +822,40 @@ const BarDemofileParser = struct {
         var frame_count: i32 = 0;
 
         while (true) {
-            const game_time = try reader.readBytes(4);
-            const length = try reader.readBytes(4);
-            const packet_type = try reader.readU8();
+            // Read game time as i32
+            const game_time = reader.readI32LE() catch |err| switch (err) {
+                error.EndOfStream => break, // End of stream reached
+                else => return err,
+            };
 
-            if (length == 0) break;
+            // Read packet length as u32
+            const length = reader.readU32LE() catch |err| switch (err) {
+                error.EndOfStream => break,
+                else => return err,
+            };
 
-            print("packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, packetTypeToString(packet_type) });
+            // Read packet type
+            const packet_type = reader.readU8() catch |err| switch (err) {
+                error.EndOfStream => break,
+                else => return err,
+            };
 
-            // const packet_data = try reader.readBytes(length - 1);
-            // defer self.allocator.free(packet_data);
+            // If length is 0 or just the packet type byte, skip
+            if (length <= 1) {
+                continue;
+            }
+
+            print("packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
 
             packet_count += 1;
 
             // Only process essential packets in ESSENTIAL_ONLY mode
             const should_process = switch (mode) {
-                .ESSENTIAL_ONLY => packet_type == PacketType.CHAT or
-                    packet_type == PacketType.GAME_OVER or
-                    packet_type == PacketType.QUIT,
+                .ESSENTIAL_ONLY => packet_type == NETMSG.CHAT or
+                    packet_type == NETMSG.GAMEOVER or
+                    packet_type == NETMSG.QUIT or
+                    packet_type == NETMSG.KEYFRAME or
+                    packet_type == NETMSG.NEWFRAME,
                 .FULL => true,
                 else => false,
             };
@@ -712,11 +863,13 @@ const BarDemofileParser = struct {
             if (should_process) {
                 try processPacketStreaming(game_time, length, packet_type, reader, match, &max_frame, &frame_count);
             } else {
-                // Skip packet data if not processing
-                try reader.skipBytes(length - 1);
+                // Skip packet data if not processing (length - 1 because we already read the packet type)
+                if (length > 1) {
+                    try reader.skipBytes(length - 1);
+                }
             }
 
-            if (packet_type == PacketType.QUIT) {
+            if (packet_type == NETMSG.QUIT) {
                 print("found quit packet, breaking [packet count={}]\n", .{packet_count});
                 break;
             }
@@ -727,15 +880,31 @@ const BarDemofileParser = struct {
     }
 
     fn processPacketStreaming(game_time: i32, length: u32, packet_type: u8, reader: *StreamingByteReader, match: *BarMatch, max_frame: *i32, frame_count: *i32) !void {
+        // Calculate remaining bytes to read (subtract 1 for the packet type we already read)
+        const remaining_bytes = if (length > 1) length - 1 else 0;
+
         switch (packet_type) {
-            PacketType.CHAT => {
-                if (length < 4) {
-                    return ParseError.UnexpectedReaderPosition; // Invalid chat packet length
+            NETMSG.CHAT => {
+                // NETMSG_CHAT: uint8_t from, dest; std::string message;
+                // But the format includes a size byte first
+                if (remaining_bytes < 3) {
+                    try reader.skipBytes(remaining_bytes);
+                    return;
                 }
+
                 const size = try reader.readU8();
                 const from_id = try reader.readU8();
                 const to_id = try reader.readU8();
-                const message = try reader.readBytes(size);
+
+                // Read the message (size bytes)
+                const message_len = if (size > 0 and size <= remaining_bytes - 3) size else 0;
+                const message = if (message_len > 0) try reader.readBytes(message_len) else try match.allocator.alloc(u8, 0);
+
+                // Skip any remaining bytes if the packet is larger than expected
+                const bytes_read = 3 + message_len;
+                if (bytes_read < remaining_bytes) {
+                    try reader.skipBytes(remaining_bytes - bytes_read);
+                }
 
                 const msg = BarMatchChatMessage{
                     .from_id = from_id,
@@ -747,49 +916,165 @@ const BarDemofileParser = struct {
                 try match.chat_messages.append(msg);
             },
 
-            PacketType.KEYFRAME => {
-                if (length < 4) {
-                    return ParseError.UnexpectedReaderPosition; // Invalid keyframe packet length
+            NETMSG.KEYFRAME => {
+                // NETMSG_KEYFRAME: int32_t framenum
+                if (remaining_bytes >= 4) {
+                    const frame = try reader.readI32LE();
+                    max_frame.* = @max(max_frame.*, frame);
+
+                    // Skip any remaining bytes
+                    if (remaining_bytes > 4) {
+                        try reader.skipBytes(remaining_bytes - 4);
+                    }
+                } else {
+                    try reader.skipBytes(remaining_bytes);
                 }
-                const frame = try reader.readI32LE();
-                max_frame.* = @max(max_frame.*, frame);
             },
 
-            PacketType.NEW_FRAME => {
-                if (length < 1) {
-                    return ParseError.UnexpectedReaderPosition; // Invalid new frame packet length
-                }
+            NETMSG.NEWFRAME => {
+                // NETMSG_NEWFRAME: (no extra data)
                 frame_count.* += 1;
+
+                // Skip any remaining bytes (shouldn't be any for NEW_FRAME)
+                if (remaining_bytes > 0) {
+                    try reader.skipBytes(remaining_bytes);
+                }
             },
 
-            PacketType.GAME_OVER => {
-                // Check if length is valid for game over packet
-                if (length < 1) {
-                    return ParseError.UnexpectedReaderPosition; // Invalid game over packet length
+            NETMSG.GAMEOVER => {
+                // NETMSG_GAMEOVER: uint8_t playerNum; std::vector<uint8_t> winningAllyTeams
+                if (remaining_bytes < 1) {
+                    try reader.skipBytes(remaining_bytes);
+                    return;
                 }
-                const size = try reader.readU8();
-                const player_num = try reader.readU8();
-                _ = size;
-                _ = player_num;
 
-                // Read winning teams
-                while (true) {
+                const player_num = try reader.readU8();
+                _ = player_num; // We don't use this currently
+
+                // Read winning ally teams - the remaining bytes are the team IDs
+                var bytes_read: u32 = 1;
+                while (bytes_read < remaining_bytes) {
                     const team_id = try reader.readU8();
                     try match.winning_ally_teams.append(team_id);
+                    bytes_read += 1;
+                }
+            },
+
+            NETMSG.QUIT => {
+                // NETMSG_QUIT: string reason
+                if (remaining_bytes > 0) {
+                    // Read the quit reason string (null-terminated)
+                    const reason_bytes = try reader.readBytes(remaining_bytes);
+                    defer match.allocator.free(reason_bytes);
+
+                    // Find null terminator
+                    var actual_len: usize = 0;
+                    for (reason_bytes) |byte| {
+                        if (byte == 0) break;
+                        actual_len += 1;
+                    }
+
+                    print("quit reason: {s}\n", .{reason_bytes[0..actual_len]});
+                }
+            },
+
+            NETMSG.PLAYERNAME => {
+                // NETMSG_PLAYERNAME: uint8_t playerNum; std::string playerName;
+                if (remaining_bytes >= 1) {
+                    const player_num = try reader.readU8();
+                    _ = player_num;
+
+                    if (remaining_bytes > 1) {
+                        const name_bytes = try reader.readBytes(remaining_bytes - 1);
+                        defer match.allocator.free(name_bytes);
+
+                        // Find null terminator
+                        var actual_len: usize = 0;
+                        for (name_bytes) |byte| {
+                            if (byte == 0) break;
+                            actual_len += 1;
+                        }
+
+                        print("player name: {s}\n", .{name_bytes[0..actual_len]});
+                    }
+                } else {
+                    try reader.skipBytes(remaining_bytes);
+                }
+            },
+
+            NETMSG.PLAYERLEFT => {
+                // NETMSG_PLAYERLEFT: uint8_t playerNum, bIntended
+                if (remaining_bytes >= 2) {
+                    const player_num = try reader.readU8();
+                    const intended = try reader.readU8();
+
+                    print("player left: player={} intended={}\n", .{ player_num, intended });
+
+                    // Skip any remaining bytes
+                    if (remaining_bytes > 2) {
+                        try reader.skipBytes(remaining_bytes - 2);
+                    }
+                } else {
+                    try reader.skipBytes(remaining_bytes);
+                }
+            },
+
+            NETMSG.PAUSE => {
+                // NETMSG_PAUSE: uint8_t playerNum, bPaused;
+                if (remaining_bytes >= 2) {
+                    const player_num = try reader.readU8();
+                    const paused = try reader.readU8();
+
+                    print("pause: player={} paused={}\n", .{ player_num, paused });
+
+                    // Skip any remaining bytes
+                    if (remaining_bytes > 2) {
+                        try reader.skipBytes(remaining_bytes - 2);
+                    }
+                } else {
+                    try reader.skipBytes(remaining_bytes);
+                }
+            },
+
+            NETMSG.GAMEID => {
+                // NETMSG_GAMEID: uint8_t gameID[16];
+                if (remaining_bytes >= 16) {
+                    const game_id_bytes = try reader.readBytes(16);
+                    defer match.allocator.free(game_id_bytes);
+
+                    print("game id: {}\n", .{std.fmt.fmtSliceHexLower(game_id_bytes)});
+
+                    // Skip any remaining bytes
+                    if (remaining_bytes > 16) {
+                        try reader.skipBytes(remaining_bytes - 16);
+                    }
+                } else {
+                    try reader.skipBytes(remaining_bytes);
+                }
+            },
+
+            NETMSG.STARTPLAYING => {
+                // NETMSG_STARTPLAYING: uint32_t countdown
+                if (remaining_bytes >= 4) {
+                    const countdown = try reader.readU32LE();
+                    print("start playing: countdown={}\n", .{countdown});
+
+                    // Skip any remaining bytes
+                    if (remaining_bytes > 4) {
+                        try reader.skipBytes(remaining_bytes - 4);
+                    }
+                } else {
+                    try reader.skipBytes(remaining_bytes);
                 }
             },
 
             else => {
                 // Skip unknown packet types
+                if (remaining_bytes > 0) {
+                    try reader.skipBytes(remaining_bytes);
+                }
             },
         }
-    }
-
-    fn determineGamemode(self: *BarDemofileParser, match: *BarMatch) BarGamemode {
-        _ = self;
-        _ = match;
-        // Simplified gamemode detection
-        return .UNKNOWN;
     }
 };
 
