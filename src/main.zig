@@ -756,7 +756,7 @@ const BarDemofileParser = struct {
             NETMSG.AICOMMAND_TRACKED => "NETMSG_AICOMMAND_TRACKED",
             NETMSG.GAME_FRAME_PROGRESS => "NETMSG_GAME_FRAME_PROGRESS",
             NETMSG.PING => "NETMSG_PING",
-            else => "NETMSG_UNKNOWN",
+            else => "UNKNOWN",
         };
     }
 
@@ -873,8 +873,9 @@ const BarDemofileParser = struct {
 
             // Only process essential packets in ESSENTIAL_ONLY mode
             const should_process = switch (mode) {
-                .ESSENTIAL_ONLY => packet_type == NETMSG.CHAT or
-                    packet_type == NETMSG.GAMEOVER or
+                .ESSENTIAL_ONLY =>
+                // packet_type == NETMSG.CHAT or
+                packet_type == NETMSG.GAMEOVER or
                     packet_type == NETMSG.QUIT,
                 .FULL => true,
                 else => false,
