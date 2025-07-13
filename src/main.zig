@@ -141,21 +141,21 @@ const Vector3 = struct {
     z: f32,
 };
 
-const BarMatchChatMessage = struct {
+const ChatMessage = struct {
     from_id: u8,
     to_id: u8,
     message: []const u8,
     game_timestamp: i32,
 };
 
-const BarMatchTeamDeath = struct {
+const TeamDeath = struct {
     team_id: u8,
     reason: u8,
     game_time: i32,
 };
 
 // Statistics structures
-const DemofilePlayerStats = struct {
+const PlayerStats = struct {
     player_id: i32,
     command_count: i32,
     unit_commands: i32,
@@ -164,7 +164,7 @@ const DemofilePlayerStats = struct {
     key_presses: i32,
 };
 
-const DemofileTeamFrameStats = struct {
+const TeamStatsDataPoint = struct {
     team_id: i32,
     frame: i32,
     metal_used: f32,
@@ -188,42 +188,42 @@ const DemofileTeamFrameStats = struct {
     units_killed: i32,
 };
 
-const DemofileTeamStats = struct {
+const TeamStats = struct {
     team_id: i32,
     stat_count: i32,
-    entries: ArrayList(DemofileTeamFrameStats),
+    entries: ArrayList(TeamStatsDataPoint),
     allocator: Allocator,
 
-    pub fn init(allocator: Allocator) DemofileTeamStats {
-        return DemofileTeamStats{
+    pub fn init(allocator: Allocator) TeamStats {
+        return TeamStats{
             .team_id = 0,
             .stat_count = 0,
-            .entries = ArrayList(DemofileTeamFrameStats).init(allocator),
+            .entries = ArrayList(TeamStatsDataPoint).init(allocator),
             .allocator = allocator,
         };
     }
 
-    pub fn deinit(self: *DemofileTeamStats) void {
+    pub fn deinit(self: *TeamStats) void {
         self.entries.deinit();
     }
 };
 
-const DemofileStatistics = struct {
+const Statistics = struct {
     winning_ally_team_ids: ArrayList(u8),
-    player_stats: ArrayList(DemofilePlayerStats),
-    team_stats: ArrayList(DemofileTeamStats),
+    player_stats: ArrayList(PlayerStats),
+    team_stats: ArrayList(TeamStats),
     allocator: Allocator,
 
-    pub fn init(allocator: Allocator) DemofileStatistics {
-        return DemofileStatistics{
+    pub fn init(allocator: Allocator) Statistics {
+        return Statistics{
             .winning_ally_team_ids = ArrayList(u8).init(allocator),
-            .player_stats = ArrayList(DemofilePlayerStats).init(allocator),
-            .team_stats = ArrayList(DemofileTeamStats).init(allocator),
+            .player_stats = ArrayList(PlayerStats).init(allocator),
+            .team_stats = ArrayList(TeamStats).init(allocator),
             .allocator = allocator,
         };
     }
 
-    pub fn deinit(self: *DemofileStatistics) void {
+    pub fn deinit(self: *Statistics) void {
         self.winning_ally_team_ids.deinit();
         self.player_stats.deinit();
         for (self.team_stats.items) |*team_stat| {
@@ -262,24 +262,24 @@ fn escapeJsonString(allocator: Allocator, input: []const u8) ![]u8 {
 
 // Main match structure
 const BarMatch = struct {
-    header: DemofileHeader,
+    header: Header,
     file_name: []const u8,
     game_config: gameconfig_parser.GameConfig,
     packet_offset: usize = 0,
     stat_offset: usize = 0,
-    chat_messages: ArrayList(BarMatchChatMessage),
-    team_deaths: ArrayList(BarMatchTeamDeath),
-    statistics: DemofileStatistics,
+    chat_messages: ArrayList(ChatMessage),
+    team_deaths: ArrayList(TeamDeath),
+    statistics: Statistics,
     allocator: Allocator,
 
     pub fn init(allocator: Allocator) BarMatch {
         return BarMatch{
-            .header = DemofileHeader.init(allocator),
+            .header = Header.init(allocator),
             .file_name = "",
             .game_config = gameconfig_parser.GameConfig.init(allocator),
-            .chat_messages = ArrayList(BarMatchChatMessage).init(allocator),
-            .team_deaths = ArrayList(BarMatchTeamDeath).init(allocator),
-            .statistics = DemofileStatistics.init(allocator),
+            .chat_messages = ArrayList(ChatMessage).init(allocator),
+            .team_deaths = ArrayList(TeamDeath).init(allocator),
+            .statistics = Statistics.init(allocator),
             .allocator = allocator,
         };
     }
@@ -568,7 +568,7 @@ const BarMatch = struct {
 };
 
 // Header structure
-const DemofileHeader = struct {
+const Header = struct {
     magic: []const u8,
     header_version: i32,
     header_size: i32,
@@ -589,8 +589,8 @@ const DemofileHeader = struct {
     winning_ally_teams_size: i32,
     allocator: Allocator,
 
-    pub fn init(allocator: Allocator) DemofileHeader {
-        return DemofileHeader{
+    pub fn init(allocator: Allocator) Header {
+        return Header{
             .magic = "",
             .header_version = 0,
             .header_size = 0,
@@ -613,7 +613,7 @@ const DemofileHeader = struct {
         };
     }
 
-    pub fn deinit(self: *DemofileHeader) void {
+    pub fn deinit(self: *Header) void {
         if (self.magic.len > 0) self.allocator.free(self.magic);
         if (self.game_version.len > 0) self.allocator.free(self.game_version);
         if (self.game_id.len > 0) self.allocator.free(self.game_id);
@@ -1088,7 +1088,7 @@ const BarDemofileParser = struct {
 
         // Read player statistics
         for (0..@as(usize, @intCast(match.header.player_count))) |i| {
-            const player_stat = DemofilePlayerStats{
+            const player_stat = PlayerStats{
                 .player_id = @intCast(i),
                 .command_count = try reader.readI32LE(),
                 .unit_commands = try reader.readI32LE(),
@@ -1101,7 +1101,7 @@ const BarDemofileParser = struct {
 
         // Read team statistics - first read the stat counts for each team
         for (0..@as(usize, @intCast(match.header.team_count))) |i| {
-            var team_stat = DemofileTeamStats.init(match.allocator);
+            var team_stat = TeamStats.init(match.allocator);
             team_stat.team_id = @intCast(i);
             team_stat.stat_count = try reader.readI32LE();
             try match.statistics.team_stats.append(team_stat);
@@ -1110,7 +1110,7 @@ const BarDemofileParser = struct {
         // Now read the actual frame statistics for each team
         for (match.statistics.team_stats.items) |*team_stat| {
             for (0..@as(usize, @intCast(team_stat.stat_count))) |_| {
-                const frame_stat = DemofileTeamFrameStats{
+                const frame_stat = TeamStatsDataPoint{
                     .team_id = team_stat.team_id,
                     .frame = try reader.readI32LE(),
                     .metal_used = try reader.readF32LE(),
@@ -1169,7 +1169,7 @@ const BarDemofileParser = struct {
                     match.allocator.free(message_bytes);
                     break :blk result;
                 } else try match.allocator.alloc(u8, 0);
-                const msg = BarMatchChatMessage{
+                const msg = ChatMessage{
                     .from_id = from_id,
                     .to_id = to_id,
                     .message = message,
@@ -1294,14 +1294,14 @@ const BarDemofileParser = struct {
                     const param1 = try reader.readU8();
 
                     if (action == 2) { // 2 = resigned
-                        const death = BarMatchTeamDeath{
+                        const death = TeamDeath{
                             .team_id = player_num,
                             .reason = action,
                             .game_time = game_time,
                         };
                         try match.team_deaths.append(death);
                     } else if (action == 4) { // 4 = TEAM_DIED, param1 = team that died
-                        const death = BarMatchTeamDeath{
+                        const death = TeamDeath{
                             .team_id = param1,
                             .reason = action,
                             .game_time = game_time,
