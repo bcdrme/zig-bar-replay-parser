@@ -426,6 +426,7 @@ const StreamingByteReader = struct {
 
     pub fn readBytes(self: *StreamingByteReader, len: usize) ![]u8 {
         const result = try self.allocator.alloc(u8, len);
+        errdefer self.allocator.free(result);
         for (result) |*byte| {
             byte.* = try self.readU8();
         }
@@ -434,6 +435,7 @@ const StreamingByteReader = struct {
 
     pub fn readAsciiStringNullTerminated(self: *StreamingByteReader, max_len: usize) ![]u8 {
         var result = try self.allocator.alloc(u8, max_len);
+        errdefer self.allocator.free(result);
         var actual_len: usize = 0;
 
         for (0..max_len) |i| {
@@ -597,21 +599,16 @@ const BarDemofileParser = struct {
         var max_frame: i32 = 0;
         var frame_count: i32 = 0;
 
-        // Limit packet parsing based on mode
-        const max_packets: usize = switch (mode) {
-            .ESSENTIAL_ONLY => 10000, // Only parse first 10k packets
-            .FULL => std.math.maxInt(i32),
-            else => 0,
-        };
-
-        while (packet_count < max_packets) {
-            const game_time = reader.readF32LE() catch break;
-            const length = reader.readU32LE() catch break;
-            const packet_type = reader.readU8() catch break;
+        while (true) {
+            const game_time = try reader.readF32LE();
+            const length = try reader.readU32LE();
+            const packet_type = try reader.readU8();
 
             if (length == 0) break;
 
-            const packet_data = reader.readBytes(length - 1) catch break;
+            print("packet [game_time={:.6}] [length={}] [type={}]\n", .{ game_time, length, packet_type });
+
+            const packet_data = try reader.readBytes(length - 1);
             defer self.allocator.free(packet_data);
 
             packet_count += 1;
