@@ -841,9 +841,8 @@ const BarDemofileParser = struct {
 
             // Only process essential packets in ESSENTIAL_ONLY mode
             const should_process = switch (mode) {
-                .ESSENTIAL_ONLY =>
-                // packet_type == NETMSG.CHAT or
-                packet_type == NETMSG.GAMEOVER or
+                .ESSENTIAL_ONLY => packet_type == NETMSG.CHAT or
+                    packet_type == NETMSG.GAMEOVER or
                     packet_type == NETMSG.QUIT,
                 .FULL => true,
                 else => false,
@@ -874,34 +873,37 @@ const BarDemofileParser = struct {
 
         switch (packet_type) {
             NETMSG.CHAT => {
-                // NETMSG_CHAT: uint8_t from, dest; std::string message;
-                // But the format includes a size byte first
+                // NETMSG_CHAT has format: uint8_t messageSize; uint8_t from, dest; std::string message;
+                // The messageSize is redundant (same as packet length), so we ignore it
                 if (remaining_bytes < 3) {
                     try reader.skipBytes(remaining_bytes);
                     return;
                 }
-
-                const size = try reader.readU8();
+                try reader.skipBytes(1); // Skip message size byte
                 const from_id = try reader.readU8();
                 const to_id = try reader.readU8();
-
-                // Read the message (size bytes)
-                const message_len = if (size > 0 and size <= remaining_bytes - 3) size else 0;
-                const message = if (message_len > 0) try reader.readBytes(message_len) else try match.allocator.alloc(u8, 0);
-
-                // Skip any remaining bytes if the packet is larger than expected
-                const bytes_read = 3 + message_len;
-                if (bytes_read < remaining_bytes) {
-                    try reader.skipBytes(remaining_bytes - bytes_read);
-                }
-
+                // The actual message length is remaining_bytes - 3 (for the 3 bytes we just read)
+                const message_len = remaining_bytes - 3;
+                const message = if (message_len > 0) blk: {
+                    const message_bytes = try reader.readBytes(message_len);
+                    // Find null terminator
+                    var actual_len: usize = 0;
+                    for (message_bytes) |byte| {
+                        if (byte == 0) break;
+                        actual_len += 1;
+                    }
+                    // Create properly sized message
+                    const result = try match.allocator.alloc(u8, actual_len);
+                    @memcpy(result, message_bytes[0..actual_len]);
+                    match.allocator.free(message_bytes);
+                    break :blk result;
+                } else try match.allocator.alloc(u8, 0);
                 const msg = BarMatchChatMessage{
                     .from_id = from_id,
                     .to_id = to_id,
                     .message = message,
                     .game_timestamp = game_time,
                 };
-
                 try match.chat_messages.append(msg);
             },
 
