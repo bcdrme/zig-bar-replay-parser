@@ -233,16 +233,6 @@ const DemofileStatistics = struct {
     }
 };
 
-// Gamemode enum
-const BarGamemode = enum {
-    DUEL,
-    SMALL_TEAM,
-    LARGE_TEAM,
-    FFA,
-    TEAM_FFA,
-    UNKNOWN,
-};
-
 fn escapeJsonString(allocator: Allocator, input: []const u8) ![]u8 {
     var result = ArrayList(u8).init(allocator);
     defer result.deinit();
@@ -277,7 +267,6 @@ const BarMatch = struct {
     game_config: gameconfig_parser.GameConfig,
     packet_offset: usize = 0,
     stat_offset: usize = 0,
-    gamemode: BarGamemode = .UNKNOWN,
     chat_messages: ArrayList(BarMatchChatMessage),
     team_deaths: ArrayList(BarMatchTeamDeath),
     statistics: DemofileStatistics,
@@ -402,18 +391,6 @@ const BarMatch = struct {
         try json_str.appendSlice("\"stat_offset\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.stat_offset});
         try json_str.appendSlice(",");
-
-        // Gamemode
-        try json_str.appendSlice("\"gamemode\":\"");
-        try json_str.appendSlice(switch (self.gamemode) {
-            .DUEL => "DUEL",
-            .SMALL_TEAM => "SMALL_TEAM",
-            .LARGE_TEAM => "LARGE_TEAM",
-            .FFA => "FFA",
-            .TEAM_FFA => "TEAM_FFA",
-            .UNKNOWN => "UNKNOWN",
-        });
-        try json_str.appendSlice("\",");
 
         // Chat messages
         try json_str.appendSlice("\"chat_messages\":[");
