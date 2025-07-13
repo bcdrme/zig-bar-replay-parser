@@ -164,6 +164,33 @@ const BarGamemode = enum {
     UNKNOWN,
 };
 
+fn escapeJsonString(allocator: Allocator, input: []const u8) ![]u8 {
+    var result = ArrayList(u8).init(allocator);
+    defer result.deinit();
+
+    for (input) |char| {
+        switch (char) {
+            '"' => try result.appendSlice("\\\""),
+            '\\' => try result.appendSlice("\\\\"),
+            '\n' => try result.appendSlice("\\n"),
+            '\r' => try result.appendSlice("\\r"),
+            '\t' => try result.appendSlice("\\t"),
+            '\x08' => try result.appendSlice("\\b"), // backspace
+            '\x0C' => try result.appendSlice("\\f"), // form feed
+            else => {
+                if (char < 32) {
+                    // Control characters - escape as \uXXXX
+                    try std.fmt.format(result.writer(), "\\u{x:0>4}", .{char});
+                } else {
+                    try result.append(char);
+                }
+            },
+        }
+    }
+
+    return result.toOwnedSlice();
+}
+
 // Main match structure
 const BarMatch = struct {
     header: DemofileHeader,
@@ -330,10 +357,15 @@ const BarMatch = struct {
             try std.fmt.format(json_str.writer(), "{d}", .{msg.to_id});
             try json_str.appendSlice(",");
             try json_str.appendSlice("\"message\":\"");
-            try json_str.appendSlice(msg.message);
+
+            // Escape the message content
+            const escaped_message = try escapeJsonString(allocator, msg.message);
+            defer allocator.free(escaped_message);
+            try json_str.appendSlice(escaped_message);
+
             try json_str.appendSlice("\",");
             try json_str.appendSlice("\"game_timestamp\":");
-            try std.fmt.format(json_str.writer(), "{d:.6}", .{msg.game_timestamp});
+            try std.fmt.format(json_str.writer(), "{d}", .{msg.game_timestamp});
             try json_str.appendSlice("}");
         }
         try json_str.appendSlice("],");
