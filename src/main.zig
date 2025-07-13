@@ -18,17 +18,121 @@ const ParseError = error{
 };
 
 // Packet types (equivalent to BarPacketType)
+// https://github.com/beyond-all-reason/RecoilEngine/blob/master/rts/Net/Protocol/NetMessageTypes.h
 const PacketType = struct {
-    const CHAT: u8 = 20;
-    const GAME_ID: u8 = 2;
-    const START_POS: u8 = 60;
-    const LUA_MSG: u8 = 50;
     const KEYFRAME: u8 = 1;
-    const NEW_FRAME: u8 = 4;
-    const GAME_OVER: u8 = 10;
-    const TEAM_MSG: u8 = 13;
+    const NEW_FRAME: u8 = 2;
     const QUIT: u8 = 3;
+    const START_PLAYING: u8 = 4;
+    const SET_PLAYER_NUM: u8 = 5;
+    const PLAYER_NAME: u8 = 6;
+    const CHAT: u8 = 7;
+    const RAND_SEED: u8 = 8;
+    const GAME_ID: u8 = 9;
+    const PATH_CHECKSUM: u8 = 10;
+    const COMMAND: u8 = 11;
+    const SELECT: u8 = 12;
+    const PAUSE: u8 = 13;
+    const AI_COMMAND: u8 = 14;
+    const AI_COMMANDS: u8 = 15;
+    const AI_SHARE: u8 = 16;
+    const USER_SPEED: u8 = 19;
+    const INTERNAL_SPEED: u8 = 20;
+    const CPU_USAGE: u8 = 21;
+    const DIRECT_CONTROL: u8 = 22;
+    const DC_UPDATE: u8 = 23;
+    const SHARE: u8 = 26;
+    const SET_SHARE: u8 = 27;
+    const PLAYER_STAT: u8 = 29;
+    const GAME_OVER: u8 = 30;
+    const MAP_DRAW: u8 = 31;
+    const SYNC_RESPONSE: u8 = 33;
+    const SYSTEM_MSG: u8 = 35;
+    const START_POS: u8 = 36;
+    const PLAYER_INFO: u8 = 38;
+    const PLAYER_LEFT: u8 = 39;
+    const SD_CHK_REQUEST: u8 = 41;
+    const SD_CHK_RESPONSE: u8 = 42;
+    const SD_BLK_REQUEST: u8 = 43;
+    const SD_BLK_RESPONSE: u8 = 44;
+    const SD_RESET: u8 = 45;
+    const LOG_MSG: u8 = 49;
+    const LUA_MSG: u8 = 50;
+    const TEAM: u8 = 51;
+    const GAME_DATA: u8 = 52;
+    const ALLIANCE: u8 = 53;
+    const C_COMMAND: u8 = 54;
+    const TEAM_STAT: u8 = 60;
+    const CLIENT_DATA: u8 = 61;
+    const ATTEMPT_CONNECT: u8 = 65;
+    const REJECT_CONNECT: u8 = 66;
+    const AI_CREATED: u8 = 70;
+    const AI_STATE_CHANGED: u8 = 71;
+    const REQUEST_TEAM_STAT: u8 = 72;
+    const CREATE_NEW_PLAYER: u8 = 75;
+    const AI_COMMAND_TRACKED: u8 = 76;
+    const GAME_FRAME_PROGRESS: u8 = 77;
+    const PING: u8 = 78;
 };
+
+fn packetTypeToString(packetType: u8) []const u8 {
+    return switch (packetType) {
+        PacketType.KEYFRAME => "KEYFRAME",
+        PacketType.NEW_FRAME => "NEW_FRAME",
+        PacketType.QUIT => "QUIT",
+        PacketType.START_PLAYING => "START_PLAYING",
+        PacketType.SET_PLAYER_NUM => "SET_PLAYER_NUM",
+        PacketType.PLAYER_NAME => "PLAYER_NAME",
+        PacketType.CHAT => "CHAT",
+        PacketType.RAND_SEED => "RAND_SEED",
+        PacketType.GAME_ID => "GAME_ID",
+        PacketType.PATH_CHECKSUM => "PATH_CHECKSUM",
+        PacketType.COMMAND => "COMMAND",
+        PacketType.SELECT => "SELECT",
+        PacketType.PAUSE => "PAUSE",
+        PacketType.AI_COMMAND => "AI_COMMAND",
+        PacketType.AI_COMMANDS => "AI_COMMANDS",
+        PacketType.AI_SHARE => "AI_SHARE",
+        PacketType.USER_SPEED => "USER_SPEED",
+        PacketType.INTERNAL_SPEED => "INTERNAL_SPEED",
+        PacketType.CPU_USAGE => "CPU_USAGE",
+        PacketType.DIRECT_CONTROL => "DIRECT_CONTROL",
+        PacketType.DC_UPDATE => "DC_UPDATE",
+        PacketType.SHARE => "SHARE",
+        PacketType.SET_SHARE => "SET_SHARE",
+        PacketType.PLAYER_STAT => "PLAYER_STAT",
+        PacketType.GAME_OVER => "GAME_OVER",
+        PacketType.MAP_DRAW => "MAP_DRAW",
+        PacketType.SYNC_RESPONSE => "SYNC_RESPONSE",
+        PacketType.SYSTEM_MSG => "SYSTEM_MSG",
+        PacketType.START_POS => "START_POS",
+        PacketType.PLAYER_INFO => "PLAYER_INFO",
+        PacketType.PLAYER_LEFT => "PLAYER_LEFT",
+        PacketType.SD_CHK_REQUEST => "SD_CHK_REQUEST",
+        PacketType.SD_CHK_RESPONSE => "SD_CHK_RESPONSE",
+        PacketType.SD_BLK_REQUEST => "SD_BLK_REQUEST",
+        PacketType.SD_BLK_RESPONSE => "SD_BLK_RESPONSE",
+        PacketType.SD_RESET => "SD_RESET",
+        PacketType.LOG_MSG => "LOG_MSG",
+        PacketType.LUA_MSG => "LUA_MSG",
+        PacketType.TEAM => "TEAM",
+        PacketType.GAME_DATA => "GAME_DATA",
+        PacketType.ALLIANCE => "ALLIANCE",
+        PacketType.C_COMMAND => "C_COMMAND",
+        PacketType.TEAM_STAT => "TEAM_STAT",
+        PacketType.CLIENT_DATA => "CLIENT_DATA",
+        PacketType.ATTEMPT_CONNECT => "ATTEMPT_CONNECT",
+        PacketType.REJECT_CONNECT => "REJECT_CONNECT",
+        PacketType.AI_CREATED => "AI_CREATED",
+        PacketType.AI_STATE_CHANGED => "AI_STATE_CHANGED",
+        PacketType.REQUEST_TEAM_STAT => "REQUEST_TEAM_STAT",
+        PacketType.CREATE_NEW_PLAYER => "CREATE_NEW_PLAYER",
+        PacketType.AI_COMMAND_TRACKED => "AI_COMMAND_TRACKED",
+        PacketType.GAME_FRAME_PROGRESS => "GAME_FRAME_PROGRESS",
+        PacketType.PING => "PING",
+        else => "UNKNOWN",
+    };
+}
 
 // Vector3 equivalent
 const Vector3 = struct {
@@ -38,19 +142,16 @@ const Vector3 = struct {
 };
 
 const BarMatchChatMessage = struct {
-    size: u8,
     from_id: u8,
     to_id: u8,
     message: []const u8,
-    game_id: []const u8,
-    game_timestamp: f32,
+    game_timestamp: i32,
 };
 
 const BarMatchTeamDeath = struct {
-    game_id: []const u8,
     team_id: u8,
     reason: u8,
-    game_time: f32,
+    game_time: i32,
 };
 
 // Gamemode enum
@@ -97,13 +198,8 @@ const BarMatch = struct {
 
         for (self.chat_messages.items) |msg| {
             if (msg.message.len > 0) self.allocator.free(msg.message);
-            if (msg.game_id.len > 0) self.allocator.free(msg.game_id);
         }
         self.chat_messages.deinit();
-
-        for (self.team_deaths.items) |death| {
-            if (death.game_id.len > 0) self.allocator.free(death.game_id);
-        }
         self.team_deaths.deinit();
     }
 
@@ -233,9 +329,6 @@ const BarMatch = struct {
         for (self.chat_messages.items, 0..) |msg, i| {
             if (i > 0) try json_str.appendSlice(",");
             try json_str.appendSlice("{");
-            try json_str.appendSlice("\"size\":");
-            try std.fmt.format(json_str.writer(), "{d}", .{msg.size});
-            try json_str.appendSlice(",");
             try json_str.appendSlice("\"from_id\":");
             try std.fmt.format(json_str.writer(), "{d}", .{msg.from_id});
             try json_str.appendSlice(",");
@@ -244,9 +337,6 @@ const BarMatch = struct {
             try json_str.appendSlice(",");
             try json_str.appendSlice("\"message\":\"");
             try json_str.appendSlice(msg.message);
-            try json_str.appendSlice("\",");
-            try json_str.appendSlice("\"game_id\":\"");
-            try json_str.appendSlice(msg.game_id);
             try json_str.appendSlice("\",");
             try json_str.appendSlice("\"game_timestamp\":");
             try std.fmt.format(json_str.writer(), "{d:.6}", .{msg.game_timestamp});
@@ -259,9 +349,6 @@ const BarMatch = struct {
         for (self.team_deaths.items, 0..) |death, i| {
             if (i > 0) try json_str.appendSlice(",");
             try json_str.appendSlice("{");
-            try json_str.appendSlice("\"game_id\":\"");
-            try json_str.appendSlice(death.game_id);
-            try json_str.appendSlice("\",");
             try json_str.appendSlice("\"team_id\":");
             try std.fmt.format(json_str.writer(), "{d}", .{death.team_id});
             try json_str.appendSlice(",");
@@ -587,29 +674,29 @@ const BarDemofileParser = struct {
         }
 
         // Parse packets (only for ESSENTIAL_ONLY and FULL modes)
-        const packet_count = try self.parsePacketsStreaming(reader, &match, mode);
+        const packet_count = try parsePacketsStreaming(reader, &match, mode);
 
         print("packets parsed [gameID={s}] [packet count={}]\n", .{ match.header.game_id, packet_count });
 
         return match;
     }
 
-    fn parsePacketsStreaming(self: *BarDemofileParser, reader: *StreamingByteReader, match: *BarMatch, mode: ParseMode) !i32 {
+    fn parsePacketsStreaming(reader: *StreamingByteReader, match: *BarMatch, mode: ParseMode) !i32 {
         var packet_count: i32 = 0;
         var max_frame: i32 = 0;
         var frame_count: i32 = 0;
 
         while (true) {
-            const game_time = try reader.readF32LE();
-            const length = try reader.readU32LE();
+            const game_time = try reader.readBytes(4);
+            const length = try reader.readBytes(4);
             const packet_type = try reader.readU8();
 
             if (length == 0) break;
 
-            print("packet [game_time={:.6}] [length={}] [type={}]\n", .{ game_time, length, packet_type });
+            print("packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, packetTypeToString(packet_type) });
 
-            const packet_data = try reader.readBytes(length - 1);
-            defer self.allocator.free(packet_data);
+            // const packet_data = try reader.readBytes(length - 1);
+            // defer self.allocator.free(packet_data);
 
             packet_count += 1;
 
@@ -617,14 +704,16 @@ const BarDemofileParser = struct {
             const should_process = switch (mode) {
                 .ESSENTIAL_ONLY => packet_type == PacketType.CHAT or
                     packet_type == PacketType.GAME_OVER or
-                    packet_type == PacketType.TEAM_MSG or
                     packet_type == PacketType.QUIT,
                 .FULL => true,
                 else => false,
             };
 
             if (should_process) {
-                try self.processPacketStreaming(packet_type, packet_data, game_time, match, &max_frame, &frame_count);
+                try processPacketStreaming(game_time, length, packet_type, reader, match, &max_frame, &frame_count);
+            } else {
+                // Skip packet data if not processing
+                try reader.skipBytes(length - 1);
             }
 
             if (packet_type == PacketType.QUIT) {
@@ -637,23 +726,21 @@ const BarDemofileParser = struct {
         return packet_count;
     }
 
-    fn processPacketStreaming(self: *BarDemofileParser, packet_type: u8, packet_data: []const u8, game_time: f32, match: *BarMatch, max_frame: *i32, frame_count: *i32) !void {
-        var packet_reader = StreamingByteReader.init(self.allocator, packet_data, packet_data.len) catch return;
-        defer packet_reader.deinit();
-
+    fn processPacketStreaming(game_time: i32, length: u32, packet_type: u8, reader: *StreamingByteReader, match: *BarMatch, max_frame: *i32, frame_count: *i32) !void {
         switch (packet_type) {
             PacketType.CHAT => {
-                const size = packet_reader.readU8() catch return;
-                const from_id = packet_reader.readU8() catch return;
-                const to_id = packet_reader.readU8() catch return;
-                const message = packet_reader.readUntilNull() catch return;
+                if (length < 4) {
+                    return ParseError.UnexpectedReaderPosition; // Invalid chat packet length
+                }
+                const size = try reader.readU8();
+                const from_id = try reader.readU8();
+                const to_id = try reader.readU8();
+                const message = try reader.readBytes(size);
 
                 const msg = BarMatchChatMessage{
-                    .size = size,
                     .from_id = from_id,
                     .to_id = to_id,
                     .message = message,
-                    .game_id = try self.allocator.dupe(u8, match.header.game_id),
                     .game_timestamp = game_time,
                 };
 
@@ -661,43 +748,34 @@ const BarDemofileParser = struct {
             },
 
             PacketType.KEYFRAME => {
-                const frame = packet_reader.readI32LE() catch return;
+                if (length < 4) {
+                    return ParseError.UnexpectedReaderPosition; // Invalid keyframe packet length
+                }
+                const frame = try reader.readI32LE();
                 max_frame.* = @max(max_frame.*, frame);
             },
 
             PacketType.NEW_FRAME => {
+                if (length < 1) {
+                    return ParseError.UnexpectedReaderPosition; // Invalid new frame packet length
+                }
                 frame_count.* += 1;
             },
 
             PacketType.GAME_OVER => {
-                const size = packet_reader.readU8() catch return;
-                const player_num = packet_reader.readU8() catch return;
+                // Check if length is valid for game over packet
+                if (length < 1) {
+                    return ParseError.UnexpectedReaderPosition; // Invalid game over packet length
+                }
+                const size = try reader.readU8();
+                const player_num = try reader.readU8();
                 _ = size;
                 _ = player_num;
 
                 // Read winning teams
                 while (true) {
-                    const team_id = packet_reader.readU8() catch break;
+                    const team_id = try reader.readU8();
                     try match.winning_ally_teams.append(team_id);
-                }
-            },
-
-            PacketType.TEAM_MSG => {
-                const player_num = packet_reader.readU8() catch return;
-                const action = packet_reader.readU8() catch return;
-                const param1 = packet_reader.readU8() catch return;
-
-                if (action == 2 or action == 4) { // resigned or team died
-                    const team_id = if (action == 2) player_num else param1;
-
-                    const death = BarMatchTeamDeath{
-                        .game_id = try self.allocator.dupe(u8, match.header.game_id),
-                        .team_id = team_id,
-                        .reason = action,
-                        .game_time = game_time,
-                    };
-
-                    try match.team_deaths.append(death);
                 }
             },
 
