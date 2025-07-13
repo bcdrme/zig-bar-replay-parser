@@ -169,7 +169,6 @@ const BarMatch = struct {
     header: DemofileHeader,
     file_name: []const u8,
     game_config: gameconfig_parser.GameConfig,
-    duration_frame_count: i32 = 0,
     packet_offset: usize = 0,
     stat_offset: usize = 0,
     winning_ally_teams: ArrayList(u8),
@@ -288,11 +287,6 @@ const BarMatch = struct {
         try json_str.appendSlice("\"file_name\":\"");
         try json_str.appendSlice(self.file_name);
         try json_str.appendSlice("\",");
-
-        // Duration frame count
-        try json_str.appendSlice("\"duration_frame_count\":");
-        try std.fmt.format(json_str.writer(), "{d}", .{self.duration_frame_count});
-        try json_str.appendSlice(",");
 
         // Packet offset
         try json_str.appendSlice("\"packet_offset\":");
@@ -818,8 +812,6 @@ const BarDemofileParser = struct {
 
     fn parsePacketsStreaming(reader: *StreamingByteReader, match: *BarMatch, mode: ParseMode) !i32 {
         var packet_count: i32 = 0;
-        var max_frame: i32 = 0;
-        var frame_count: i32 = 0;
 
         while (true) {
             // Read game time as i32
@@ -845,23 +837,21 @@ const BarDemofileParser = struct {
                 continue;
             }
 
-            print("packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
-
             packet_count += 1;
 
             // Only process essential packets in ESSENTIAL_ONLY mode
             const should_process = switch (mode) {
-                .ESSENTIAL_ONLY => packet_type == NETMSG.CHAT or
-                    packet_type == NETMSG.GAMEOVER or
-                    packet_type == NETMSG.QUIT or
-                    packet_type == NETMSG.KEYFRAME or
-                    packet_type == NETMSG.NEWFRAME,
+                .ESSENTIAL_ONLY =>
+                // packet_type == NETMSG.CHAT or
+                packet_type == NETMSG.GAMEOVER or
+                    packet_type == NETMSG.QUIT,
                 .FULL => true,
                 else => false,
             };
 
             if (should_process) {
-                try processPacketStreaming(game_time, length, packet_type, reader, match, &max_frame, &frame_count);
+                print("packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
+                try processPacketStreaming(game_time, length, packet_type, reader, match);
             } else {
                 // Skip packet data if not processing (length - 1 because we already read the packet type)
                 if (length > 1) {
@@ -875,11 +865,10 @@ const BarDemofileParser = struct {
             }
         }
 
-        match.duration_frame_count = max_frame;
         return packet_count;
     }
 
-    fn processPacketStreaming(game_time: i32, length: u32, packet_type: u8, reader: *StreamingByteReader, match: *BarMatch, max_frame: *i32, frame_count: *i32) !void {
+    fn processPacketStreaming(game_time: i32, length: u32, packet_type: u8, reader: *StreamingByteReader, match: *BarMatch) !void {
         // Calculate remaining bytes to read (subtract 1 for the packet type we already read)
         const remaining_bytes = if (length > 1) length - 1 else 0;
 
@@ -914,31 +903,6 @@ const BarDemofileParser = struct {
                 };
 
                 try match.chat_messages.append(msg);
-            },
-
-            NETMSG.KEYFRAME => {
-                // NETMSG_KEYFRAME: int32_t framenum
-                if (remaining_bytes >= 4) {
-                    const frame = try reader.readI32LE();
-                    max_frame.* = @max(max_frame.*, frame);
-
-                    // Skip any remaining bytes
-                    if (remaining_bytes > 4) {
-                        try reader.skipBytes(remaining_bytes - 4);
-                    }
-                } else {
-                    try reader.skipBytes(remaining_bytes);
-                }
-            },
-
-            NETMSG.NEWFRAME => {
-                // NETMSG_NEWFRAME: (no extra data)
-                frame_count.* += 1;
-
-                // Skip any remaining bytes (shouldn't be any for NEW_FRAME)
-                if (remaining_bytes > 0) {
-                    try reader.skipBytes(remaining_bytes);
-                }
             },
 
             NETMSG.GAMEOVER => {
