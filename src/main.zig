@@ -154,6 +154,85 @@ const BarMatchTeamDeath = struct {
     game_time: i32,
 };
 
+// Statistics structures
+const DemofilePlayerStats = struct {
+    player_id: i32,
+    command_count: i32,
+    unit_commands: i32,
+    mouse_pixels: i32,
+    mouse_clicks: i32,
+    key_presses: i32,
+};
+
+const DemofileTeamFrameStats = struct {
+    team_id: i32,
+    frame: i32,
+    metal_used: f32,
+    energy_used: f32,
+    metal_produced: f32,
+    energy_produced: f32,
+    metal_excess: f32,
+    energy_excess: f32,
+    metal_received: f32,
+    energy_received: f32,
+    metal_send: f32,
+    energy_send: f32,
+    damage_dealt: f32,
+    damage_received: f32,
+    units_produced: i32,
+    units_died: i32,
+    units_received: i32,
+    units_sent: i32,
+    units_captured: i32,
+    units_out_captured: i32,
+    units_killed: i32,
+};
+
+const DemofileTeamStats = struct {
+    team_id: i32,
+    stat_count: i32,
+    entries: ArrayList(DemofileTeamFrameStats),
+    allocator: Allocator,
+
+    pub fn init(allocator: Allocator) DemofileTeamStats {
+        return DemofileTeamStats{
+            .team_id = 0,
+            .stat_count = 0,
+            .entries = ArrayList(DemofileTeamFrameStats).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *DemofileTeamStats) void {
+        self.entries.deinit();
+    }
+};
+
+const DemofileStatistics = struct {
+    winning_ally_team_ids: ArrayList(u8),
+    player_stats: ArrayList(DemofilePlayerStats),
+    team_stats: ArrayList(DemofileTeamStats),
+    allocator: Allocator,
+
+    pub fn init(allocator: Allocator) DemofileStatistics {
+        return DemofileStatistics{
+            .winning_ally_team_ids = ArrayList(u8).init(allocator),
+            .player_stats = ArrayList(DemofilePlayerStats).init(allocator),
+            .team_stats = ArrayList(DemofileTeamStats).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *DemofileStatistics) void {
+        self.winning_ally_team_ids.deinit();
+        self.player_stats.deinit();
+        for (self.team_stats.items) |*team_stat| {
+            team_stat.deinit();
+        }
+        self.team_stats.deinit();
+    }
+};
+
 // Gamemode enum
 const BarGamemode = enum {
     DUEL,
@@ -202,6 +281,7 @@ const BarMatch = struct {
     gamemode: BarGamemode = .UNKNOWN,
     chat_messages: ArrayList(BarMatchChatMessage),
     team_deaths: ArrayList(BarMatchTeamDeath),
+    statistics: DemofileStatistics,
     allocator: Allocator,
 
     pub fn init(allocator: Allocator) BarMatch {
@@ -212,6 +292,7 @@ const BarMatch = struct {
             .winning_ally_teams = ArrayList(u8).init(allocator),
             .chat_messages = ArrayList(BarMatchChatMessage).init(allocator),
             .team_deaths = ArrayList(BarMatchTeamDeath).init(allocator),
+            .statistics = DemofileStatistics.init(allocator),
             .allocator = allocator,
         };
     }
@@ -227,6 +308,7 @@ const BarMatch = struct {
         }
         self.chat_messages.deinit();
         self.team_deaths.deinit();
+        self.statistics.deinit();
     }
 
     pub fn toJson(self: *const BarMatch, allocator: Allocator) ![]u8 {
@@ -386,6 +468,128 @@ const BarMatch = struct {
             try json_str.appendSlice("}");
         }
         try json_str.appendSlice("],");
+
+        // Statistics section
+        try json_str.appendSlice("\"statistics\":{");
+
+        // Winning ally teams from statistics
+        try json_str.appendSlice("\"winning_ally_team_ids\":[");
+        for (self.statistics.winning_ally_team_ids.items, 0..) |team_id, i| {
+            if (i > 0) try json_str.appendSlice(",");
+            try std.fmt.format(json_str.writer(), "{d}", .{team_id});
+        }
+        try json_str.appendSlice("],");
+
+        // Player stats
+        try json_str.appendSlice("\"player_stats\":[");
+        for (self.statistics.player_stats.items, 0..) |stat, i| {
+            if (i > 0) try json_str.appendSlice(",");
+            try json_str.appendSlice("{");
+            try json_str.appendSlice("\"player_id\":");
+            try std.fmt.format(json_str.writer(), "{d}", .{stat.player_id});
+            try json_str.appendSlice(",");
+            try json_str.appendSlice("\"command_count\":");
+            try std.fmt.format(json_str.writer(), "{d}", .{stat.command_count});
+            try json_str.appendSlice(",");
+            try json_str.appendSlice("\"unit_commands\":");
+            try std.fmt.format(json_str.writer(), "{d}", .{stat.unit_commands});
+            try json_str.appendSlice(",");
+            try json_str.appendSlice("\"mouse_pixels\":");
+            try std.fmt.format(json_str.writer(), "{d}", .{stat.mouse_pixels});
+            try json_str.appendSlice(",");
+            try json_str.appendSlice("\"mouse_clicks\":");
+            try std.fmt.format(json_str.writer(), "{d}", .{stat.mouse_clicks});
+            try json_str.appendSlice(",");
+            try json_str.appendSlice("\"key_presses\":");
+            try std.fmt.format(json_str.writer(), "{d}", .{stat.key_presses});
+            try json_str.appendSlice("}");
+        }
+        try json_str.appendSlice("],");
+
+        // Team stats
+        try json_str.appendSlice("\"team_stats\":[");
+        for (self.statistics.team_stats.items, 0..) |team_stat, i| {
+            if (i > 0) try json_str.appendSlice(",");
+            try json_str.appendSlice("{");
+            try json_str.appendSlice("\"team_id\":");
+            try std.fmt.format(json_str.writer(), "{d}", .{team_stat.team_id});
+            try json_str.appendSlice(",");
+            try json_str.appendSlice("\"stat_count\":");
+            try std.fmt.format(json_str.writer(), "{d}", .{team_stat.stat_count});
+            try json_str.appendSlice(",");
+            try json_str.appendSlice("\"entries\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try json_str.appendSlice(",");
+                try json_str.appendSlice("{");
+                try json_str.appendSlice("\"team_id\":");
+                try std.fmt.format(json_str.writer(), "{d}", .{entry.team_id});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"frame\":");
+                try std.fmt.format(json_str.writer(), "{d}", .{entry.frame});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"metal_used\":");
+                try std.fmt.format(json_str.writer(), "{d:.6}", .{entry.metal_used});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"energy_used\":");
+                try std.fmt.format(json_str.writer(), "{d:.6}", .{entry.energy_used});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"metal_produced\":");
+                try std.fmt.format(json_str.writer(), "{d:.6}", .{entry.metal_produced});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"energy_produced\":");
+                try std.fmt.format(json_str.writer(), "{d:.6}", .{entry.energy_produced});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"metal_excess\":");
+                try std.fmt.format(json_str.writer(), "{d:.6}", .{entry.metal_excess});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"energy_excess\":");
+                try std.fmt.format(json_str.writer(), "{d:.6}", .{entry.energy_excess});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"metal_received\":");
+                try std.fmt.format(json_str.writer(), "{d:.6}", .{entry.metal_received});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"energy_received\":");
+                try std.fmt.format(json_str.writer(), "{d:.6}", .{entry.energy_received});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"metal_send\":");
+                try std.fmt.format(json_str.writer(), "{d:.6}", .{entry.metal_send});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"energy_send\":");
+                try std.fmt.format(json_str.writer(), "{d:.6}", .{entry.energy_send});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"damage_dealt\":");
+                try std.fmt.format(json_str.writer(), "{d:.6}", .{entry.damage_dealt});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"damage_received\":");
+                try std.fmt.format(json_str.writer(), "{d:.6}", .{entry.damage_received});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"units_produced\":");
+                try std.fmt.format(json_str.writer(), "{d}", .{entry.units_produced});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"units_died\":");
+                try std.fmt.format(json_str.writer(), "{d}", .{entry.units_died});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"units_received\":");
+                try std.fmt.format(json_str.writer(), "{d}", .{entry.units_received});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"units_sent\":");
+                try std.fmt.format(json_str.writer(), "{d}", .{entry.units_sent});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"units_captured\":");
+                try std.fmt.format(json_str.writer(), "{d}", .{entry.units_captured});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"units_out_captured\":");
+                try std.fmt.format(json_str.writer(), "{d}", .{entry.units_out_captured});
+                try json_str.appendSlice(",");
+                try json_str.appendSlice("\"units_killed\":");
+                try std.fmt.format(json_str.writer(), "{d}", .{entry.units_killed});
+                try json_str.appendSlice("}");
+            }
+            try json_str.appendSlice("]");
+            try json_str.appendSlice("}");
+        }
+        try json_str.appendSlice("]");
+        try json_str.appendSlice("},");
 
         // Game config - use the existing toJson method (now compact)
         try json_str.appendSlice("\"game_config\":");
@@ -811,6 +1015,10 @@ const BarDemofileParser = struct {
         match.header.team_stat_period = try reader.readI32LE();
         match.header.winning_ally_teams_size = try reader.readI32LE();
 
+        // Calculate offsets (these are calculated based on the header information)
+        match.packet_offset = 0x0160 + @as(usize, @intCast(match.header.script_size)); // 0x0160 is the fixed header size
+        match.stat_offset = match.packet_offset + @as(usize, @intCast(match.header.demo_stream_size));
+
         // Early exit for header-only mode
         if (mode == .HEADER_ONLY) {
             match.game_config = gameconfig_parser.GameConfig.init(self.allocator);
@@ -838,6 +1046,15 @@ const BarDemofileParser = struct {
         };
 
         print("packets parsed [gameID={s}] [packet count={}]\n", .{ match.header.game_id, packet_count });
+
+        // Parse statistics (only for FULL mode)
+        if (mode == .FULL) {
+            parseStatisticsStreaming(reader, &match) catch |err| {
+                print("Warning: statistics parsing failed: {}\n", .{err});
+                return match; // Return what we have so far
+            };
+            print("statistics parsed [gameID={s}]\n", .{match.header.game_id});
+        }
 
         return match;
     }
@@ -898,6 +1115,65 @@ const BarDemofileParser = struct {
         }
 
         return packet_count;
+    }
+
+    fn parseStatisticsStreaming(reader: *StreamingByteReader, match: *BarMatch) !void {
+        // Read winning ally teams
+        for (0..@as(usize, @intCast(match.header.winning_ally_teams_size))) |_| {
+            const team_id = try reader.readU8();
+            try match.statistics.winning_ally_team_ids.append(team_id);
+        }
+
+        // Read player statistics
+        for (0..@as(usize, @intCast(match.header.player_count))) |i| {
+            const player_stat = DemofilePlayerStats{
+                .player_id = @intCast(i),
+                .command_count = try reader.readI32LE(),
+                .unit_commands = try reader.readI32LE(),
+                .mouse_pixels = try reader.readI32LE(),
+                .mouse_clicks = try reader.readI32LE(),
+                .key_presses = try reader.readI32LE(),
+            };
+            try match.statistics.player_stats.append(player_stat);
+        }
+
+        // Read team statistics - first read the stat counts for each team
+        for (0..@as(usize, @intCast(match.header.team_count))) |i| {
+            var team_stat = DemofileTeamStats.init(match.allocator);
+            team_stat.team_id = @intCast(i);
+            team_stat.stat_count = try reader.readI32LE();
+            try match.statistics.team_stats.append(team_stat);
+        }
+
+        // Now read the actual frame statistics for each team
+        for (match.statistics.team_stats.items) |*team_stat| {
+            for (0..@as(usize, @intCast(team_stat.stat_count))) |_| {
+                const frame_stat = DemofileTeamFrameStats{
+                    .team_id = team_stat.team_id,
+                    .frame = try reader.readI32LE(),
+                    .metal_used = try reader.readF32LE(),
+                    .energy_used = try reader.readF32LE(),
+                    .metal_produced = try reader.readF32LE(),
+                    .energy_produced = try reader.readF32LE(),
+                    .metal_excess = try reader.readF32LE(),
+                    .energy_excess = try reader.readF32LE(),
+                    .metal_received = try reader.readF32LE(),
+                    .energy_received = try reader.readF32LE(),
+                    .metal_send = try reader.readF32LE(),
+                    .energy_send = try reader.readF32LE(),
+                    .damage_dealt = try reader.readF32LE(),
+                    .damage_received = try reader.readF32LE(),
+                    .units_produced = try reader.readI32LE(),
+                    .units_died = try reader.readI32LE(),
+                    .units_received = try reader.readI32LE(),
+                    .units_sent = try reader.readI32LE(),
+                    .units_captured = try reader.readI32LE(),
+                    .units_out_captured = try reader.readI32LE(),
+                    .units_killed = try reader.readI32LE(),
+                };
+                try team_stat.entries.append(frame_stat);
+            }
+        }
     }
 
     fn processPacketStreaming(game_time: i32, length: u32, packet_type: u8, reader: *StreamingByteReader, match: *BarMatch) !void {
@@ -1061,6 +1337,38 @@ const BarDemofileParser = struct {
                     // Skip any remaining bytes
                     if (remaining_bytes > 4) {
                         try reader.skipBytes(remaining_bytes - 4);
+                    }
+                } else {
+                    try reader.skipBytes(remaining_bytes);
+                }
+            },
+
+            NETMSG.TEAM => {
+                // NETMSG_TEAM: uint8_t playerNum; uint8_t action; uint8_t param1;
+                if (remaining_bytes >= 3) {
+                    const player_num = try reader.readU8();
+                    const action = try reader.readU8();
+                    const param1 = try reader.readU8();
+
+                    if (action == 2) { // 2 = resigned
+                        const death = BarMatchTeamDeath{
+                            .team_id = player_num,
+                            .reason = action,
+                            .game_time = game_time,
+                        };
+                        try match.team_deaths.append(death);
+                    } else if (action == 4) { // 4 = TEAM_DIED, param1 = team that died
+                        const death = BarMatchTeamDeath{
+                            .team_id = param1,
+                            .reason = action,
+                            .game_time = game_time,
+                        };
+                        try match.team_deaths.append(death);
+                    }
+
+                    // Skip any remaining bytes
+                    if (remaining_bytes > 3) {
+                        try reader.skipBytes(remaining_bytes - 3);
                     }
                 } else {
                     try reader.skipBytes(remaining_bytes);
