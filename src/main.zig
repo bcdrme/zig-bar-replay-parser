@@ -277,7 +277,6 @@ const BarMatch = struct {
     game_config: gameconfig_parser.GameConfig,
     packet_offset: usize = 0,
     stat_offset: usize = 0,
-    winning_ally_teams: ArrayList(u8),
     gamemode: BarGamemode = .UNKNOWN,
     chat_messages: ArrayList(BarMatchChatMessage),
     team_deaths: ArrayList(BarMatchTeamDeath),
@@ -289,7 +288,6 @@ const BarMatch = struct {
             .header = DemofileHeader.init(allocator),
             .file_name = "",
             .game_config = gameconfig_parser.GameConfig.init(allocator),
-            .winning_ally_teams = ArrayList(u8).init(allocator),
             .chat_messages = ArrayList(BarMatchChatMessage).init(allocator),
             .team_deaths = ArrayList(BarMatchTeamDeath).init(allocator),
             .statistics = DemofileStatistics.init(allocator),
@@ -301,8 +299,6 @@ const BarMatch = struct {
         self.header.deinit();
         if (self.file_name.len > 0) self.allocator.free(self.file_name);
         self.game_config.deinit();
-        self.winning_ally_teams.deinit();
-
         for (self.chat_messages.items) |msg| {
             if (msg.message.len > 0) self.allocator.free(msg.message);
         }
@@ -406,14 +402,6 @@ const BarMatch = struct {
         try json_str.appendSlice("\"stat_offset\":");
         try std.fmt.format(json_str.writer(), "{d}", .{self.stat_offset});
         try json_str.appendSlice(",");
-
-        // Winning ally teams
-        try json_str.appendSlice("\"winning_ally_teams\":[");
-        for (self.winning_ally_teams.items, 0..) |team_id, i| {
-            if (i > 0) try json_str.appendSlice(",");
-            try std.fmt.format(json_str.writer(), "{d}", .{team_id});
-        }
-        try json_str.appendSlice("],");
 
         // Gamemode
         try json_str.appendSlice("\"gamemode\":\"");
@@ -704,6 +692,18 @@ const StreamingByteReader = struct {
         }
     }
 
+    pub fn skipBytes(self: *StreamingByteReader, len: u32) !void {
+        var len_mut = len;
+        if (len_mut == 0) return; // No bytes to skip
+        while (len_mut > 0) {
+            try self.fillBuffer();
+            if (self.buffer_pos >= self.buffer_len) return ParseError.EndOfStream;
+            const bytes_to_skip = @min(len_mut, @as(u32, @intCast(self.buffer_len - self.buffer_pos)));
+            self.buffer_pos += bytes_to_skip;
+            len_mut -= bytes_to_skip;
+        }
+    }
+
     pub fn readU8(self: *StreamingByteReader) !u8 {
         try self.fillBuffer();
         if (self.buffer_pos >= self.buffer_len) return ParseError.EndOfStream;
@@ -773,12 +773,6 @@ const StreamingByteReader = struct {
         return result;
     }
 
-    pub fn skipBytes(self: *StreamingByteReader, len: usize) !void {
-        for (0..len) |_| {
-            _ = try self.readU8();
-        }
-    }
-
     pub fn readUntilNull(self: *StreamingByteReader) ![]u8 {
         var result = ArrayList(u8).init(self.allocator);
         defer result.deinit();
@@ -814,13 +808,7 @@ const BarDemofileParser = struct {
     pub fn parseWithMode(self: *BarDemofileParser, filename: []const u8, demofile: []const u8, mode: ParseMode) !BarMatch {
         var timer = std.time.Timer.start() catch unreachable;
 
-        // Use streaming reader with size limit based on mode
-        const max_size: usize = switch (mode) {
-            .HEADER_ONLY => 1024 * 1024, // 1MB max for header only
-            .METADATA_ONLY => 5 * 1024 * 1024, // 5MB max for metadata
-            .ESSENTIAL_ONLY => 50 * 1024 * 1024, // 50MB max for essential
-            .FULL => 256 * 1024 * 1024, // 256MB max for full parse
-        };
+        const max_size: usize = 200 * 1024 * 1024; // 200MB max
 
         var reader = try StreamingByteReader.init(self.allocator, demofile, max_size);
         defer reader.deinit();
@@ -994,7 +982,7 @@ const BarDemofileParser = struct {
         }
         match.header.game_version = try self.allocator.dupe(u8, game_version_bytes[0..version_len]);
 
-        // Read game ID (16 bytes)
+        // Read game ID
         const game_id_bytes = try reader.readBytes(16);
         defer self.allocator.free(game_id_bytes);
         var game_id_buf: [32]u8 = undefined;
@@ -1035,26 +1023,23 @@ const BarDemofileParser = struct {
         }
 
         // Early exit for metadata-only mode
-        if (mode == .METADATA_ONLY) {
-            return match;
-        }
-
-        // Parse packets (only for ESSENTIAL_ONLY and FULL modes)
-        const packet_count = parsePacketsStreaming(reader, &match, mode) catch |err| {
-            print("Warning: packet parsing failed: {}\n", .{err});
-            return match; // Return what we have so far
-        };
-
-        print("packets parsed [gameID={s}] [packet count={}]\n", .{ match.header.game_id, packet_count });
-
-        // Parse statistics (only for FULL mode)
-        if (mode == .FULL) {
-            parseStatisticsStreaming(reader, &match) catch |err| {
-                print("Warning: statistics parsing failed: {}\n", .{err});
+        if (mode == .ESSENTIAL_ONLY or mode == .FULL) {
+            const packet_count = parsePacketsStreaming(reader, &match, mode) catch |err| {
+                print("Warning: packet parsing failed: {}\n", .{err});
                 return match; // Return what we have so far
             };
-            print("statistics parsed [gameID={s}]\n", .{match.header.game_id});
+            print("packets parsed [gameID={s}] [packet count={}]\n", .{ match.header.game_id, packet_count });
+        } else {
+            try reader.skipBytes(@as(u32, @intCast(match.header.demo_stream_size)));
+            print("skipped demo stream data [gameID={s}]\n", .{match.header.game_id});
         }
+
+        // Parse statistics
+        parseStatisticsStreaming(reader, &match) catch |err| {
+            print("Warning: statistics parsing failed: {}\n", .{err});
+            return match; // Return what we have so far
+        };
+        print("statistics parsed [gameID={s}]\n", .{match.header.game_id});
 
         return match;
     }
@@ -1214,25 +1199,6 @@ const BarDemofileParser = struct {
                     .game_timestamp = game_time,
                 };
                 try match.chat_messages.append(msg);
-            },
-
-            NETMSG.GAMEOVER => {
-                // NETMSG_GAMEOVER: uint8_t playerNum; std::vector<uint8_t> winningAllyTeams
-                if (remaining_bytes < 1) {
-                    try reader.skipBytes(remaining_bytes);
-                    return;
-                }
-
-                const player_num = try reader.readU8();
-                _ = player_num; // We don't use this currently
-
-                // Read winning ally teams - the remaining bytes are the team IDs
-                var bytes_read: u32 = 1;
-                while (bytes_read < remaining_bytes) {
-                    const team_id = try reader.readU8();
-                    try match.winning_ally_teams.append(team_id);
-                    bytes_read += 1;
-                }
             },
 
             NETMSG.QUIT => {
