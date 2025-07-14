@@ -190,13 +190,13 @@ const TeamStatsDataPoint = struct {
 const TeamStats = struct {
     team_id: i32,
     stat_count: i32,
-    entries: ArrayList(TeamStatsDataPoint),
+    entries: []TeamStatsDataPoint,
 };
 
 const Statistics = struct {
-    winning_ally_team_ids: ArrayList(u8),
-    player_stats: ArrayList(PlayerStats),
-    team_stats: ArrayList(TeamStats),
+    winning_ally_team_ids: []u8, // Array of winning ally team IDs
+    player_stats: []PlayerStats,
+    team_stats: []TeamStats,
 };
 
 fn escapeJsonString(allocator: Allocator, input: []const u8) ![]u8 {
@@ -235,7 +235,6 @@ const BarMatch = struct {
     packet_count: i32 = 0,
     packet_parsed: i32 = 0,
     chat_messages: ArrayList(ChatMessage),
-    team_deaths: ArrayList(TeamDeath),
     statistics: Statistics,
     allocator: Allocator,
 
@@ -244,11 +243,10 @@ const BarMatch = struct {
             .header = Header.init(),
             .game_config = gameconfig_parser.GameConfig.init(allocator),
             .chat_messages = ArrayList(ChatMessage).init(allocator),
-            .team_deaths = ArrayList(TeamDeath).init(allocator),
             .statistics = Statistics{
-                .winning_ally_team_ids = ArrayList(u8).init(allocator),
-                .player_stats = ArrayList(PlayerStats).init(allocator),
-                .team_stats = ArrayList(TeamStats).init(allocator),
+                .winning_ally_team_ids = undefined,
+                .player_stats = undefined,
+                .team_stats = undefined,
             },
             .allocator = allocator,
         };
@@ -260,16 +258,14 @@ const BarMatch = struct {
             if (msg.message.len > 0) self.allocator.free(msg.message);
         }
         self.chat_messages.deinit();
-        self.team_deaths.deinit();
+        self.allocator.free(self.statistics.winning_ally_team_ids);
+        self.allocator.free(self.statistics.player_stats);
+        self.allocator.free(self.statistics.team_stats);
     }
 
     pub fn toJson(self: *const BarMatch, allocator: Allocator) ![]u8 {
         // Pre-calculate approximate size to reduce reallocations
-        const estimated_size = 8192 +
-            (self.chat_messages.items.len * 256) +
-            (self.team_deaths.items.len * 128) +
-            (self.statistics.player_stats.items.len * 256) +
-            (self.statistics.team_stats.items.len * 1024);
+        const estimated_size = 8192;
 
         var json_str = try ArrayList(u8).initCapacity(allocator, estimated_size);
         defer json_str.deinit();
@@ -313,20 +309,12 @@ const BarMatch = struct {
         }
         try writer.writeAll("],");
 
-        // Team deaths - batch writing
-        try writer.writeAll("\"team_deaths\":[");
-        for (self.team_deaths.items, 0..) |death, i| {
-            if (i > 0) try writer.writeByte(',');
-            try writer.print("{{\"team_id\":{d},\"reason\":{d},\"game_time\":{d:.6}}}", .{ death.team_id, death.reason, death.game_time });
-        }
-        try writer.writeAll("],");
-
         // Statistics section - more efficient formatting
         try writer.writeAll("\"statistics\":{");
 
         // Winning ally teams
         try writer.writeAll("\"winning_ally_team_ids\":[");
-        for (self.statistics.winning_ally_team_ids.items, 0..) |team_id, i| {
+        for (self.statistics.winning_ally_team_ids, 0..) |team_id, i| {
             if (i > 0) try writer.writeByte(',');
             try writer.print("{d}", .{team_id});
         }
@@ -334,7 +322,7 @@ const BarMatch = struct {
 
         // Player stats - batch processing
         try writer.writeAll("\"player_stats\":[");
-        for (self.statistics.player_stats.items, 0..) |stat, i| {
+        for (self.statistics.player_stats, 0..) |stat, i| {
             if (i > 0) try writer.writeByte(',');
             try writer.print("{{\"player_id\":{d},\"mouse_pixels\":{d},\"mouse_clicks\":{d},\"key_presses\":{d}}}", .{ i, stat.mouse_pixels, stat.mouse_clicks, stat.key_presses });
         }
@@ -342,11 +330,11 @@ const BarMatch = struct {
 
         // Team stats - most complex section, optimize heavily
         try writer.writeAll("\"team_stats\":[");
-        for (self.statistics.team_stats.items, 0..) |team_stat, i| {
+        for (self.statistics.team_stats, 0..) |team_stat, i| {
             if (i > 0) try writer.writeByte(',');
             try writer.print("{{\"team_id\":{d},\"stat_count\":{d},\"entries\":[", .{ team_stat.team_id, team_stat.stat_count });
 
-            for (team_stat.entries.items, 0..) |entry, j| {
+            for (team_stat.entries, 0..) |entry, j| {
                 if (j > 0) try writer.writeByte(',');
                 try writer.print("{{\"team_id\":{d},\"frame\":{d},\"metal_used\":{d:.6},\"energy_used\":{d:.6},\"metal_produced\":{d:.6},\"energy_produced\":{d:.6},\"metal_excess\":{d:.6},\"energy_excess\":{d:.6},\"metal_received\":{d:.6},\"energy_received\":{d:.6},\"metal_send\":{d:.6},\"energy_send\":{d:.6},\"damage_dealt\":{d:.6},\"damage_received\":{d:.6},\"units_produced\":{d},\"units_died\":{d},\"units_received\":{d},\"units_sent\":{d},\"units_captured\":{d},\"units_out_captured\":{d},\"units_killed\":{d}}}", .{ entry.team_id, entry.frame, entry.metal_used, entry.energy_used, entry.metal_produced, entry.energy_produced, entry.metal_excess, entry.energy_excess, entry.metal_received, entry.energy_received, entry.metal_send, entry.energy_send, entry.damage_dealt, entry.damage_received, entry.units_produced, entry.units_died, entry.units_received, entry.units_sent, entry.units_captured, entry.units_out_captured, entry.units_killed });
             }
@@ -409,7 +397,21 @@ const BarDemofileParser = struct {
     allocator: Allocator,
 
     pub fn init(allocator: Allocator, file_path: []const u8, mode: ParseMode) !BarDemofileParser {
-        const file_data = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024 * 50); // 50MB max
+
+        // Only read the first MB
+        const file = try std.fs.cwd().openFile(file_path, .{});
+        defer file.close();
+
+        var file_data: []u8 = undefined;
+        // TODO could read the header, check magic number, and adjust buffer relative game.header.script_size
+        if (mode == .HEADER_ONLY or mode == .METADATA_ONLY) {
+            file_data = try allocator.alloc(u8, 1024 * 512);
+        } else {
+            file_data = try allocator.alloc(u8, 1024 * 1024 * 50); // 50MB max
+        }
+        _ = try file.read(file_data);
+
+        // const file_data = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024 * 50); // 50MB max
         var fixed_buffer_stream = std.io.fixedBufferStream(file_data);
         const gzip_stream = std.compress.gzip.decompressor(fixed_buffer_stream.reader());
 
@@ -577,14 +579,8 @@ const BarDemofileParser = struct {
             _ = try self.gzip_stream.reader().read(script);
             defer self.allocator.free(script);
             match.game_config = try gameconfig_parser.parseScript(self.allocator, script);
-        } else {
-            match.game_config = gameconfig_parser.GameConfig.init(self.allocator);
         }
 
-        // Check reader if we are at the expected position
-        // if (reader.reader_pos != match.packet_offset) {
-        //     return ParseError.UnexpectedReaderPosition;
-        // }
         if (self.mode == .METADATA_ONLY) {
             return match; // Return early for metadata-only mode
         }
@@ -601,16 +597,11 @@ const BarDemofileParser = struct {
         try self.gzip_stream.reader().skipBytes(@as(u32, @intCast(match.header.demo_stream_size)), .{});
         // }
 
-        // Check reader position after packets
-        // if (reader.reader_pos != match.stat_offset) {
-        //     return ParseError.UnexpectedReaderPosition;
-        // }
-
         // Parse statistics
-        // parseStatisticsStreaming(reader, &match) catch |err| {
-        //     print("Warning: statistics parsing failed: {}\n", .{err});
-        //     return match; // Return what we have so far
-        // };
+        self.parseStatisticsStreaming(&match) catch |err| {
+            print("Warning: statistics parsing failed: {}\n", .{err});
+            return match; // Return what we have so far
+        };
 
         return match;
     }
@@ -677,109 +668,107 @@ const BarDemofileParser = struct {
         }
     }
 
-    fn parseStatisticsStreaming(self: *BarDemofileParser) !void {
+    fn parseStatisticsStreaming(self: *BarDemofileParser, match: *BarMatch) !void {
         // Read winning ally teams - batch read
-        if (self.match.header.winning_ally_teams_size > 0) {
-            const team_ids = try self.allocator.alloc(u8, @intCast(self.match.header.winning_ally_teams_size));
-            defer self.allocator.free(team_ids);
-
-            try self.gzip_stream.reader().readMultipleU8(team_ids);
-            try self.match.statistics.winning_ally_team_ids.appendSlice(team_ids);
+        if (match.header.winning_ally_teams_size > 0) {
+            const winning_ally_team_ids = try self.allocator.alloc(u8, @intCast(match.header.winning_ally_teams_size));
+            _ = try self.gzip_stream.reader().read(winning_ally_team_ids);
+            match.statistics.winning_ally_team_ids = winning_ally_team_ids;
         }
 
-        // Read player statistics - batch read the raw data
-        if (self.match.header.player_count > 0) {
-            try self.match.statistics.player_stats.ensureTotalCapacity(@intCast(self.match.header.player_count));
+        // // Read player statistics - batch read the raw data
+        // if (match.header.player_count > 0) {
+        //     try match.statistics.player_stats.ensureTotalCapacity(@intCast(match.header.player_count));
 
-            for (0..@intCast(self.match.header.player_count)) |i| {
-                // Read all 5 i32 values at once into a buffer
-                var stats_data: [5]i32 = undefined;
-                try self.gzip_stream.reader().readMultipleI32LE(&stats_data);
+        //     for (0..@intCast(match.header.player_count)) |i| {
+        //         // Read all 5 i32 values at once into a buffer
+        //         var stats_data: [5]i32 = undefined;
+        //         try self.gzip_stream.reader().readMultipleI32LE(&stats_data);
 
-                const player_stat = PlayerStats{
-                    .player_id = @intCast(i),
-                    .command_count = stats_data[0],
-                    .unit_commands = stats_data[1],
-                    .mouse_pixels = stats_data[2],
-                    .mouse_clicks = stats_data[3],
-                    .key_presses = stats_data[4],
-                };
-                self.match.statistics.player_stats.appendAssumeCapacity(player_stat);
-            }
-        }
+        //         const player_stat = PlayerStats{
+        //             .player_id = @intCast(i),
+        //             .command_count = stats_data[0],
+        //             .unit_commands = stats_data[1],
+        //             .mouse_pixels = stats_data[2],
+        //             .mouse_clicks = stats_data[3],
+        //             .key_presses = stats_data[4],
+        //         };
+        //         self.match.statistics.player_stats.appendAssumeCapacity(player_stat);
+        //     }
+        // }
 
-        // Read team statistics - optimize for batch reading
-        if (self.match.header.team_count > 0) {
-            try self.match.statistics.team_stats.ensureTotalCapacity(@intCast(self.match.header.team_count));
+        // // Read team statistics - optimize for batch reading
+        // if (self.match.header.team_count > 0) {
+        //     try self.match.statistics.team_stats.ensureTotalCapacity(@intCast(self.match.header.team_count));
 
-            // First pass: read stat counts
-            const stat_counts = try self.allocator.alloc(i32, @intCast(self.match.header.team_count));
-            defer self.allocator.free(stat_counts);
+        //     // First pass: read stat counts
+        //     const stat_counts = try self.allocator.alloc(i32, @intCast(self.match.header.team_count));
+        //     defer self.allocator.free(stat_counts);
 
-            try self.gzip_stream.reader().readMultipleI32LE(stat_counts);
+        //     try self.gzip_stream.reader().readMultipleI32LE(stat_counts);
 
-            // Initialize team stats with known capacities
-            for (0..@intCast(self.match.header.team_count)) |i| {
-                var team_stat = TeamStats.init(self.allocator);
-                team_stat.team_id = @intCast(i);
-                team_stat.stat_count = stat_counts[i];
+        //     // Initialize team stats with known capacities
+        //     for (0..@intCast(self.match.header.team_count)) |i| {
+        //         var team_stat = TeamStats.init(self.allocator);
+        //         team_stat.team_id = @intCast(i);
+        //         team_stat.stat_count = stat_counts[i];
 
-                // Add sanity check for stat count
-                if (stat_counts[i] < 0 or stat_counts[i] > 100000) {
-                    print("Warning: Invalid stat count {} for team {}, skipping\n", .{ stat_counts[i], i });
-                    self.match.statistics.team_stats.appendAssumeCapacity(team_stat);
-                    continue;
-                }
+        //         // Add sanity check for stat count
+        //         if (stat_counts[i] < 0 or stat_counts[i] > 100000) {
+        //             print("Warning: Invalid stat count {} for team {}, skipping\n", .{ stat_counts[i], i });
+        //             self.match.statistics.team_stats.appendAssumeCapacity(team_stat);
+        //             continue;
+        //         }
 
-                try team_stat.entries.ensureTotalCapacity(@intCast(stat_counts[i]));
-                self.match.statistics.team_stats.appendAssumeCapacity(team_stat);
-            }
+        //         try team_stat.entries.ensureTotalCapacity(@intCast(stat_counts[i]));
+        //         self.match.statistics.team_stats.appendAssumeCapacity(team_stat);
+        //     }
 
-            // Second pass: read actual frame statistics in batches
-            for (self.match.statistics.team_stats.items) |*team_stat| {
-                const entry_count = @as(usize, @intCast(team_stat.stat_count));
+        //     // Second pass: read actual frame statistics in batches
+        //     for (self.match.statistics.team_stats.items) |*team_stat| {
+        //         const entry_count = @as(usize, @intCast(team_stat.stat_count));
 
-                for (0..entry_count) |_| {
-                    // Read all 20 values for this entry at once
-                    var frame_data: [20]f32 = undefined;
+        //         for (0..entry_count) |_| {
+        //             // Read all 20 values for this entry at once
+        //             var frame_data: [20]f32 = undefined;
 
-                    // Read frame (i32) and convert to f32 for batch processing
-                    const frame = try self.gzip_stream.reader().readI32LE();
+        //             // Read frame (i32) and convert to f32 for batch processing
+        //             const frame = try self.gzip_stream.reader().readI32LE();
 
-                    // Read all float values at once
-                    try self.gzip_stream.reader().readMultipleF32LE(frame_data[0..19]);
+        //             // Read all float values at once
+        //             try self.gzip_stream.reader().readMultipleF32LE(frame_data[0..19]);
 
-                    // Read integer values
-                    var int_data: [7]i32 = undefined;
-                    try self.gzip_stream.reader().readMultipleI32LE(&int_data);
+        //             // Read integer values
+        //             var int_data: [7]i32 = undefined;
+        //             try self.gzip_stream.reader().readMultipleI32LE(&int_data);
 
-                    const frame_stat = TeamStatsDataPoint{
-                        .team_id = team_stat.team_id,
-                        .frame = frame,
-                        .metal_used = frame_data[0],
-                        .energy_used = frame_data[1],
-                        .metal_produced = frame_data[2],
-                        .energy_produced = frame_data[3],
-                        .metal_excess = frame_data[4],
-                        .energy_excess = frame_data[5],
-                        .metal_received = frame_data[6],
-                        .energy_received = frame_data[7],
-                        .metal_send = frame_data[8],
-                        .energy_send = frame_data[9],
-                        .damage_dealt = frame_data[10],
-                        .damage_received = frame_data[11],
-                        .units_produced = int_data[0],
-                        .units_died = int_data[1],
-                        .units_received = int_data[2],
-                        .units_sent = int_data[3],
-                        .units_captured = int_data[4],
-                        .units_out_captured = int_data[5],
-                        .units_killed = int_data[6],
-                    };
-                    team_stat.entries.appendAssumeCapacity(frame_stat);
-                }
-            }
-        }
+        //             const frame_stat = TeamStatsDataPoint{
+        //                 .team_id = team_stat.team_id,
+        //                 .frame = frame,
+        //                 .metal_used = frame_data[0],
+        //                 .energy_used = frame_data[1],
+        //                 .metal_produced = frame_data[2],
+        //                 .energy_produced = frame_data[3],
+        //                 .metal_excess = frame_data[4],
+        //                 .energy_excess = frame_data[5],
+        //                 .metal_received = frame_data[6],
+        //                 .energy_received = frame_data[7],
+        //                 .metal_send = frame_data[8],
+        //                 .energy_send = frame_data[9],
+        //                 .damage_dealt = frame_data[10],
+        //                 .damage_received = frame_data[11],
+        //                 .units_produced = int_data[0],
+        //                 .units_died = int_data[1],
+        //                 .units_received = int_data[2],
+        //                 .units_sent = int_data[3],
+        //                 .units_captured = int_data[4],
+        //                 .units_out_captured = int_data[5],
+        //                 .units_killed = int_data[6],
+        //             };
+        //             team_stat.entries.appendAssumeCapacity(frame_stat);
+        //         }
+        //     }
+        // }
     }
 
     fn processPacketStreaming(self: *BarDemofileParser, game_time: i32, length: u32, packet_type: u8) !void {
