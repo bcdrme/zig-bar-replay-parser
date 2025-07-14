@@ -449,8 +449,8 @@ const GameConfigParser = struct {
         };
     }
 
-    pub fn parse(self: *Self, input: []const u8, config: *GameConfig) !void {
-        var lines = std.mem.splitSequence(u8, input, "\n");
+    pub fn parse(self: *Self, script: []const u8, config: *GameConfig) !void {
+        var lines = std.mem.splitSequence(u8, script, "\n");
         var current_section: ?[]const u8 = null;
         var current_map: ?*StringMap = null;
         var in_section = false;
@@ -691,10 +691,10 @@ const GameConfigParser = struct {
 };
 
 // Optimized public interface
-pub fn parseScript(allocator: Allocator, input: []const u8) !GameConfig {
+pub fn parseScript(allocator: Allocator, script: []const u8) !GameConfig {
     var config = GameConfig.init(allocator);
     var parser = GameConfigParser.init(allocator, &config.string_pool);
-    try parser.parse(input, &config);
+    try parser.parse(script, &config);
     return config;
 }
 

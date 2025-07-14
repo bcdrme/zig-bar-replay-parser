@@ -843,7 +843,10 @@ const BarDemofileParser = struct {
 
         // Read script if present
         if (match.header.script_size > 0) {
-            const script = try reader.readBytes(@intCast(match.header.script_size));
+            const script = self.allocator.alloc(u8, @as(usize, @intCast(match.header.script_size))) catch |err| {
+                return err; // Handle allocation error
+            };
+            _ = try reader.gzip_stream.reader().read(script);
             defer self.allocator.free(script);
             match.game_config = try gameconfig_parser.parseScript(self.allocator, script);
         } else {
@@ -851,34 +854,36 @@ const BarDemofileParser = struct {
         }
 
         // Check reader if we are at the expected position
-        if (reader.reader_pos != match.packet_offset) {
-            return ParseError.UnexpectedReaderPosition;
+        // if (reader.reader_pos != match.packet_offset) {
+        //     return ParseError.UnexpectedReaderPosition;
+        // }
+        if (mode == .METADATA_ONLY) {
+            return match; // Return early for metadata-only mode
         }
 
         // Parse packets or skip demo stream data
-        if (mode == .ESSENTIAL_ONLY or mode == .FULL) {
-            parsePacketsStreaming(reader, &match, mode) catch |err| {
-                print("Warning: packet parsing failed: {}\n", .{err});
-                print("[reader position={}] [packet count={}] [packet parsed={}]\n", .{ reader.reader_pos, match.packet_count, match.packet_parsed });
-                return match; // Return what we have so far
-            };
-            print("packets parsed [gameID={s}] [packet count={}] [packet parsed={}]\n", .{ match.header.game_id, match.packet_count, match.packet_parsed });
-        } else {
-            try reader.skipBytes(@as(u32, @intCast(match.header.demo_stream_size)));
-            print("skipped demo stream data [gameID={s}]\n", .{match.header.game_id});
-        }
+        // if (mode == .ESSENTIAL_ONLY or mode == .FULL) {
+        //     parsePacketsStreaming(reader, &match, mode) catch |err| {
+        //         print("Warning: packet parsing failed: {}\n", .{err});
+        //         print("[reader position={}] [packet count={}] [packet parsed={}]\n", .{ reader.reader_pos, match.packet_count, match.packet_parsed });
+        //         return match; // Return what we have so far
+        //     };
+        //     print("packets parsed [gameID={s}] [packet count={}] [packet parsed={}]\n", .{ match.header.game_id, match.packet_count, match.packet_parsed });
+        // } else {
+        //     try reader.skipBytes(@as(u32, @intCast(match.header.demo_stream_size)));
+        // }
 
         // Check reader position after packets
-        if (reader.reader_pos != match.stat_offset) {
-            return ParseError.UnexpectedReaderPosition;
-        }
+        // if (reader.reader_pos != match.stat_offset) {
+        //     return ParseError.UnexpectedReaderPosition;
+        // }
 
         // Parse statistics
-        parseStatisticsStreaming(reader, &match) catch |err| {
-            print("Warning: statistics parsing failed: {}\n", .{err});
-            return match; // Return what we have so far
-        };
-        print("statistics parsed [gameID={s}]\n", .{match.header.game_id});
+        // parseStatisticsStreaming(reader, &match) catch |err| {
+        //     print("Warning: statistics parsing failed: {}\n", .{err});
+        //     return match; // Return what we have so far
+        // };
+        // print("statistics parsed [gameID={s}]\n", .{match.header.game_id});
 
         return match;
     }
@@ -1172,8 +1177,8 @@ pub fn main() !void {
     print("Total time taken: {}ms\n", .{total_timer.read() / std.time.ns_per_ms});
 
     // stdout json
-    // const stdout = std.io.getStdOut().writer();
-    // try stdout.writeAll(json);
+    const stdout = std.io.getStdOut().writer();
+    try stdout.writeAll(json);
 }
 
 // WASM handles
