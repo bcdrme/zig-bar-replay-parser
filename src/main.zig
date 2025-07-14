@@ -155,15 +155,14 @@ const TeamDeath = struct {
 };
 
 // Statistics structures
-const PlayerStats = struct {
-    player_id: i32,
-    command_count: i32,
-    unit_commands: i32,
+// https://github.com/beyond-all-reason/RecoilEngine/blob/7c505ac918a50ffce413ebcfe9f8ff9e342c8efd/rts/Game/Players/PlayerStatistics.h
+const PlayerStats = extern struct {
     mouse_pixels: i32,
     mouse_clicks: i32,
     key_presses: i32,
 };
 
+// https://github.com/beyond-all-reason/RecoilEngine/blob/7c505ac918a50ffce413ebcfe9f8ff9e342c8efd/rts/Sim/Misc/TeamStatistics.h
 const TeamStatsDataPoint = struct {
     team_id: i32,
     frame: i32,
@@ -192,45 +191,12 @@ const TeamStats = struct {
     team_id: i32,
     stat_count: i32,
     entries: ArrayList(TeamStatsDataPoint),
-    allocator: Allocator,
-
-    pub fn init(allocator: Allocator) TeamStats {
-        return TeamStats{
-            .team_id = 0,
-            .stat_count = 0,
-            .entries = ArrayList(TeamStatsDataPoint).init(allocator),
-            .allocator = allocator,
-        };
-    }
-
-    pub fn deinit(self: *TeamStats) void {
-        self.entries.deinit();
-    }
 };
 
 const Statistics = struct {
     winning_ally_team_ids: ArrayList(u8),
     player_stats: ArrayList(PlayerStats),
     team_stats: ArrayList(TeamStats),
-    allocator: Allocator,
-
-    pub fn init(allocator: Allocator) Statistics {
-        return Statistics{
-            .winning_ally_team_ids = ArrayList(u8).init(allocator),
-            .player_stats = ArrayList(PlayerStats).init(allocator),
-            .team_stats = ArrayList(TeamStats).init(allocator),
-            .allocator = allocator,
-        };
-    }
-
-    pub fn deinit(self: *Statistics) void {
-        self.winning_ally_team_ids.deinit();
-        self.player_stats.deinit();
-        for (self.team_stats.items) |*team_stat| {
-            team_stat.deinit();
-        }
-        self.team_stats.deinit();
-    }
 };
 
 fn escapeJsonString(allocator: Allocator, input: []const u8) ![]u8 {
@@ -281,7 +247,11 @@ const BarMatch = struct {
             .game_config = gameconfig_parser.GameConfig.init(allocator),
             .chat_messages = ArrayList(ChatMessage).init(allocator),
             .team_deaths = ArrayList(TeamDeath).init(allocator),
-            .statistics = Statistics.init(allocator),
+            .statistics = Statistics{
+                .winning_ally_team_ids = ArrayList(u8).init(allocator),
+                .player_stats = ArrayList(PlayerStats).init(allocator),
+                .team_stats = ArrayList(TeamStats).init(allocator),
+            },
             .allocator = allocator,
         };
     }
@@ -294,7 +264,6 @@ const BarMatch = struct {
         }
         self.chat_messages.deinit();
         self.team_deaths.deinit();
-        self.statistics.deinit();
     }
 
     pub fn toJson(self: *const BarMatch, allocator: Allocator) ![]u8 {
@@ -371,7 +340,7 @@ const BarMatch = struct {
         try writer.writeAll("\"player_stats\":[");
         for (self.statistics.player_stats.items, 0..) |stat, i| {
             if (i > 0) try writer.writeByte(',');
-            try writer.print("{{\"player_id\":{d},\"command_count\":{d},\"unit_commands\":{d},\"mouse_pixels\":{d},\"mouse_clicks\":{d},\"key_presses\":{d}}}", .{ stat.player_id, stat.command_count, stat.unit_commands, stat.mouse_pixels, stat.mouse_clicks, stat.key_presses });
+            try writer.print("{{\"player_id\":{d},\"mouse_pixels\":{d},\"mouse_clicks\":{d},\"key_presses\":{d}}}", .{ i, stat.mouse_pixels, stat.mouse_clicks, stat.key_presses });
         }
         try writer.writeAll("],");
 
@@ -658,6 +627,7 @@ const StreamingByteReader = struct {
         }
     }
 };
+
 // Parse mode enum for controlling what gets parsed
 const ParseMode = enum {
     HEADER_ONLY, // Only parse header (fastest)
@@ -870,7 +840,7 @@ const BarDemofileParser = struct {
         //     };
         //     print("packets parsed [gameID={s}] [packet count={}] [packet parsed={}]\n", .{ match.header.game_id, match.packet_count, match.packet_parsed });
         // } else {
-        //     try reader.skipBytes(@as(u32, @intCast(match.header.demo_stream_size)));
+        try reader.gzip_stream.reader().skipBytes(@as(u32, @intCast(match.header.demo_stream_size)), .{});
         // }
 
         // Check reader position after packets
@@ -883,7 +853,6 @@ const BarDemofileParser = struct {
         //     print("Warning: statistics parsing failed: {}\n", .{err});
         //     return match; // Return what we have so far
         // };
-        // print("statistics parsed [gameID={s}]\n", .{match.header.game_id});
 
         return match;
     }
