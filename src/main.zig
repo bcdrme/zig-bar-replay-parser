@@ -229,7 +229,6 @@ fn escapeJsonString(allocator: Allocator, input: []const u8) ![]u8 {
 // Main match structure
 const BarMatch = struct {
     header: Header,
-    file_name: []const u8,
     game_config: gameconfig_parser.GameConfig,
     packet_offset: i32 = 0,
     stat_offset: i32 = 0,
@@ -243,7 +242,6 @@ const BarMatch = struct {
     pub fn init(allocator: Allocator) BarMatch {
         return BarMatch{
             .header = Header.init(),
-            .file_name = "",
             .game_config = gameconfig_parser.GameConfig.init(allocator),
             .chat_messages = ArrayList(ChatMessage).init(allocator),
             .team_deaths = ArrayList(TeamDeath).init(allocator),
@@ -257,7 +255,6 @@ const BarMatch = struct {
     }
 
     pub fn deinit(self: *BarMatch) void {
-        if (self.file_name.len > 0) self.allocator.free(self.file_name);
         self.game_config.deinit();
         for (self.chat_messages.items) |msg| {
             if (msg.message.len > 0) self.allocator.free(msg.message);
@@ -300,7 +297,6 @@ const BarMatch = struct {
         try writer.print("\"team_stat_period\":{d},", .{self.header.team_stat_period});
         try writer.print("\"winning_ally_teams_size\":{d}}},", .{self.header.winning_ally_teams_size});
 
-        try writer.print("\"file_name\":\"{s}\",", .{self.file_name});
         try writer.print("\"packet_offset\":{d},", .{self.packet_offset});
         try writer.print("\"stat_offset\":{d},", .{self.stat_offset});
 
@@ -396,238 +392,6 @@ const Header = extern struct {
     }
 };
 
-// Streaming byte reader for incremental decompression
-const StreamingByteReader = struct {
-    gzip_stream: std.compress.gzip.Decompressor(std.io.FixedBufferStream([]const u8).Reader),
-    buffer: []u8,
-    buffer_pos: usize,
-    buffer_len: usize,
-    reader_pos: usize = 0, // Track position in the decompressed stream
-    total_read: usize,
-    allocator: Allocator,
-    max_size: usize,
-    // Add these fields to prevent use-after-free
-    compressed_data_copy: []u8, // Keep our own copy
-    stream_wrapper: std.io.FixedBufferStream([]const u8),
-
-    pub fn init(allocator: Allocator, compressed_data: []const u8, max_size: usize) !StreamingByteReader {
-        // Validate minimum gzip header size
-        if (compressed_data.len < 10) {
-            return ParseError.InvalidHeader;
-        }
-
-        // Validate gzip magic number (0x1f, 0x8b)
-        if (compressed_data[0] != 0x1f or compressed_data[1] != 0x8b) {
-            return ParseError.InvalidHeader;
-        }
-
-        // CRITICAL: Make a copy of the compressed data to ensure it doesn't get freed
-        const data_copy = try allocator.dupe(u8, compressed_data);
-        errdefer allocator.free(data_copy);
-
-        // Cast to []const u8 to match expected type
-        var stream_wrapper = std.io.fixedBufferStream(@as([]const u8, data_copy));
-
-        // Initialize the gzip stream
-        const gzip_stream = std.compress.gzip.decompressor(stream_wrapper.reader());
-
-        // Use a reasonable buffer size and ZERO-INITIALIZE it
-        const buffer = try allocator.alloc(u8, 4096);
-        // Zero out the buffer to prevent uninitialized memory issues
-        @memset(buffer, 0);
-
-        return StreamingByteReader{
-            .gzip_stream = gzip_stream,
-            .buffer = buffer,
-            .buffer_pos = 0,
-            .buffer_len = 0,
-            .total_read = 0,
-            .allocator = allocator,
-            .max_size = max_size,
-            .compressed_data_copy = data_copy,
-            .stream_wrapper = stream_wrapper,
-        };
-    }
-
-    pub fn deinit(self: *StreamingByteReader) void {
-        self.allocator.free(self.buffer);
-        self.allocator.free(self.compressed_data_copy);
-        // Zero out the struct to prevent use-after-free
-        self.buffer_pos = 0;
-        self.buffer_len = 0;
-        self.total_read = 0;
-    }
-
-    fn fillBuffer(self: *StreamingByteReader) !void {
-        if (self.buffer_pos < self.buffer_len) return; // Buffer still has data
-
-        // Validate buffer state before proceeding
-        if (self.buffer_pos > self.buffer.len or self.buffer_len > self.buffer.len) {
-            return ParseError.UnexpectedReaderPosition;
-        }
-
-        // Reset buffer position
-        self.buffer_pos = 0;
-
-        // Zero out buffer before reading to prevent stale data
-        @memset(self.buffer, 0);
-
-        // Read into buffer with comprehensive error handling
-        const bytes_read = try self.gzip_stream.read(self.buffer);
-
-        // Validate read length
-        if (bytes_read > self.buffer.len) {
-            return ParseError.UnexpectedReaderPosition;
-        }
-
-        self.buffer_len = bytes_read;
-        self.total_read += bytes_read;
-
-        // Anti-zip-bomb protection
-        if (self.total_read > self.max_size) {
-            return ParseError.DecompressionTooLarge;
-        }
-    }
-
-    pub fn skipBytes(self: *StreamingByteReader, len: u32) !void {
-        var remaining = len;
-        while (remaining > 0) {
-            try self.fillBuffer();
-            const to_skip = @min(remaining, self.buffer_len - self.buffer_pos);
-            if (to_skip == 0) {
-                return ParseError.EndOfStream; // No more data to skip
-            }
-            self.buffer_pos += to_skip;
-            remaining -= to_skip;
-        }
-    }
-
-    pub fn readU8(self: *StreamingByteReader) !u8 {
-        try self.fillBuffer();
-
-        if (self.buffer_len == 0 or self.buffer_pos >= self.buffer_len) {
-            return ParseError.EndOfStream;
-        }
-
-        // Additional bounds check
-        if (self.buffer_pos >= self.buffer.len) {
-            return ParseError.UnexpectedReaderPosition;
-        }
-
-        const result = self.buffer[self.buffer_pos];
-        self.reader_pos += 1;
-        self.buffer_pos += 1;
-        return result;
-    }
-
-    // Rest of the methods...
-    pub fn readI32LE(self: *StreamingByteReader) !i32 {
-        var bytes: [4]u8 = undefined;
-        // Initialize to prevent undefined behavior
-        @memset(&bytes, 0);
-        for (&bytes) |*byte| {
-            byte.* = try self.readU8();
-        }
-        return std.mem.readInt(i32, &bytes, .little);
-    }
-
-    pub fn readU32LE(self: *StreamingByteReader) !u32 {
-        var bytes: [4]u8 = undefined;
-        @memset(&bytes, 0);
-        for (&bytes) |*byte| {
-            byte.* = try self.readU8();
-        }
-        return std.mem.readInt(u32, &bytes, .little);
-    }
-
-    pub fn readI64LE(self: *StreamingByteReader) !i64 {
-        var bytes: [8]u8 = undefined;
-        @memset(&bytes, 0);
-        for (&bytes) |*byte| {
-            byte.* = try self.readU8();
-        }
-        return std.mem.readInt(i64, &bytes, .little);
-    }
-
-    pub fn readF32LE(self: *StreamingByteReader) !f32 {
-        const int_val = try self.readU32LE();
-        return @as(f32, @bitCast(int_val));
-    }
-
-    pub fn readBytes(self: *StreamingByteReader, len: usize) ![]u8 {
-        if (len > self.max_size) {
-            return ParseError.DecompressionTooLarge;
-        }
-
-        const result = try self.allocator.alloc(u8, len);
-        errdefer self.allocator.free(result);
-
-        // Initialize the result buffer
-        @memset(result, 0);
-
-        for (result) |*byte| {
-            byte.* = try self.readU8();
-        }
-        return result;
-    }
-
-    pub fn readStringIntoBuffer(self: *StreamingByteReader, buffer: []u8) !usize {
-        // Initialize buffer to prevent undefined behavior
-        @memset(buffer, 0);
-
-        var len: usize = 0;
-        for (buffer) |*byte| {
-            const b = try self.readU8();
-            if (b == 0) break;
-            byte.* = b;
-            len += 1;
-        }
-        return len;
-    }
-
-    pub fn readMultipleU8(self: *StreamingByteReader, dest: []u8) !void {
-        if (dest.len > self.max_size) {
-            return ParseError.DecompressionTooLarge;
-        }
-
-        @memset(dest, 0); // Initialize destination
-
-        for (dest) |*byte| {
-            byte.* = try self.readU8();
-        }
-    }
-
-    pub fn readMultipleI32LE(self: *StreamingByteReader, dest: []i32) !void {
-        if (dest.len > self.max_size / 4) {
-            return ParseError.DecompressionTooLarge;
-        }
-
-        // Initialize destination
-        for (dest) |*val| {
-            val.* = 0;
-        }
-
-        for (dest) |*val| {
-            val.* = try self.readI32LE();
-        }
-    }
-
-    pub fn readMultipleF32LE(self: *StreamingByteReader, dest: []f32) !void {
-        if (dest.len > self.max_size / 4) {
-            return ParseError.DecompressionTooLarge;
-        }
-
-        // Initialize destination
-        for (dest) |*val| {
-            val.* = 0.0;
-        }
-
-        for (dest) |*val| {
-            val.* = try self.readF32LE();
-        }
-    }
-};
-
 // Parse mode enum for controlling what gets parsed
 const ParseMode = enum {
     HEADER_ONLY, // Only parse header (fastest)
@@ -638,32 +402,33 @@ const ParseMode = enum {
 
 // Main parser
 const BarDemofileParser = struct {
+    // file: std.fs.File,
+    mode: ParseMode,
+    // gzip_stream: std.compress.gzip.Decompressor(std.fs.File.Reader),
+    gzip_stream: std.compress.gzip.Decompressor(std.io.FixedBufferStream([]u8).Reader),
     allocator: Allocator,
 
-    pub fn init(allocator: Allocator) BarDemofileParser {
+    pub fn init(allocator: Allocator, file_path: []const u8, mode: ParseMode) !BarDemofileParser {
+        const file_data = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024 * 500); // 500MB max
+        defer allocator.free(file_data);
+
+        var fixed_buffer_stream = std.io.fixedBufferStream(file_data);
+        const gzip_stream = std.compress.gzip.decompressor(fixed_buffer_stream.reader());
+
+        // const file = try std.fs.cwd().openFile(file_path, .{});
+        // const gzip_stream = std.compress.gzip.decompressor(file.reader());
+
         return BarDemofileParser{
+            // .file = file,
+            .mode = mode,
+            .gzip_stream = gzip_stream,
             .allocator = allocator,
         };
     }
 
-    pub fn parseWithMode(self: *BarDemofileParser, filename: []const u8, demofile: []const u8, mode: ParseMode) !BarMatch {
-        const max_size: usize = 200 * 1024 * 1024; // 200MB max
-        var reader = try StreamingByteReader.init(self.allocator, demofile, max_size);
-        defer reader.deinit();
-        return try self.readBytesStreaming(filename, &reader, mode);
-    }
-
-    pub fn parse(self: *BarDemofileParser, filename: []const u8, demofile: []const u8) !BarMatch {
-        return self.parseWithMode(filename, demofile, .FULL);
-    }
-
-    pub fn parseHeaderOnly(self: *BarDemofileParser, filename: []const u8, demofile: []const u8) !BarMatch {
-        return self.parseWithMode(filename, demofile, .HEADER_ONLY);
-    }
-
-    pub fn parseMetadataOnly(self: *BarDemofileParser, filename: []const u8, demofile: []const u8) !BarMatch {
-        return self.parseWithMode(filename, demofile, .METADATA_ONLY);
-    }
+    // pub fn deinit(self: *BarDemofileParser) void {
+    //     self.file.close();
+    // }
 
     // Packet types (NETMSG from NetMessageTypes.h)
     // https://github.com/beyond-all-reason/RecoilEngine/blob/master/rts/Net/Protocol/NetMessageTypes.h
@@ -786,15 +551,12 @@ const BarDemofileParser = struct {
         };
     }
 
-    fn readBytesStreaming(self: *BarDemofileParser, filename: []const u8, reader: *StreamingByteReader, mode: ParseMode) !BarMatch {
+    pub fn parse(self: *BarDemofileParser) !BarMatch {
         var match = BarMatch.init(self.allocator);
         errdefer match.deinit();
 
-        // Copy filename
-        match.file_name = try self.allocator.dupe(u8, filename);
-
         // Read header
-        match.header = try reader.gzip_stream.reader().readStructEndian(Header, .little);
+        match.header = try self.gzip_stream.reader().readStructEndian(Header, .little);
 
         // Validate header
         if (!std.mem.eql(u8, &match.header.magic, "spring demofile\x00")) {
@@ -806,7 +568,7 @@ const BarDemofileParser = struct {
         match.stat_offset = match.packet_offset + match.header.demo_stream_size;
 
         // Early exit for header-only mode
-        if (mode == .HEADER_ONLY) {
+        if (self.mode == .HEADER_ONLY) {
             match.game_config = gameconfig_parser.GameConfig.init(self.allocator);
             return match;
         }
@@ -816,7 +578,7 @@ const BarDemofileParser = struct {
             const script = self.allocator.alloc(u8, @as(usize, @intCast(match.header.script_size))) catch |err| {
                 return err; // Handle allocation error
             };
-            _ = try reader.gzip_stream.reader().read(script);
+            _ = try self.gzip_stream.reader().read(script);
             defer self.allocator.free(script);
             match.game_config = try gameconfig_parser.parseScript(self.allocator, script);
         } else {
@@ -827,7 +589,7 @@ const BarDemofileParser = struct {
         // if (reader.reader_pos != match.packet_offset) {
         //     return ParseError.UnexpectedReaderPosition;
         // }
-        if (mode == .METADATA_ONLY) {
+        if (self.mode == .METADATA_ONLY) {
             return match; // Return early for metadata-only mode
         }
 
@@ -840,7 +602,7 @@ const BarDemofileParser = struct {
         //     };
         //     print("packets parsed [gameID={s}] [packet count={}] [packet parsed={}]\n", .{ match.header.game_id, match.packet_count, match.packet_parsed });
         // } else {
-        try reader.gzip_stream.reader().skipBytes(@as(u32, @intCast(match.header.demo_stream_size)), .{});
+        try self.gzip_stream.reader().skipBytes(@as(u32, @intCast(match.header.demo_stream_size)), .{});
         // }
 
         // Check reader position after packets
@@ -857,23 +619,23 @@ const BarDemofileParser = struct {
         return match;
     }
 
-    fn parsePacketsStreaming(reader: *StreamingByteReader, match: *BarMatch, mode: ParseMode) !void {
+    fn parsePacketsStreaming(self: *BarDemofileParser, match: *BarMatch, mode: ParseMode) !void {
         var packetBytesRead: usize = 0;
         while (true) {
             // Check if we are finished reading the demo stream
-            if (reader.reader_pos >= match.stat_offset) {
+            if (self.gzip_stream.reader().reader_pos >= match.stat_offset) {
                 print("Reached end of demo stream [packet bytes read={}]\n", .{packetBytesRead});
                 break;
             }
 
             // Read game time as i32
-            const game_time = try reader.readI32LE();
+            const game_time = try self.gzip_stream.reader().readI32LE();
 
             // Read packet length as u32
-            const length = try reader.readU32LE();
+            const length = try self.gzip_stream.reader().readU32LE();
 
             // Read packet type
-            const packet_type = try reader.readU8();
+            const packet_type = try self.gzip_stream.reader().readU8();
 
             match.packet_count += 1;
             packetBytesRead += length;
@@ -899,7 +661,7 @@ const BarDemofileParser = struct {
 
             if (should_process) {
                 // print("packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
-                processPacketStreaming(game_time, length, packet_type, reader, match) catch |err| {
+                self.processPacketStreaming(game_time, length, packet_type) catch |err| {
                     print("Error with packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
                     print("Error processing packet: {}\n", .{err});
                     return err; // Stop on error
@@ -908,7 +670,7 @@ const BarDemofileParser = struct {
             } else {
                 // Skip packet data if not processing (length - 1 because we already read the packet type)
                 if (length > 1) {
-                    try reader.skipBytes(length - 1);
+                    try self.gzip_stream.reader().skipBytes(length - 1);
                 }
             }
 
@@ -919,24 +681,24 @@ const BarDemofileParser = struct {
         }
     }
 
-    fn parseStatisticsStreaming(reader: *StreamingByteReader, match: *BarMatch) !void {
+    fn parseStatisticsStreaming(self: *BarDemofileParser) !void {
         // Read winning ally teams - batch read
-        if (match.header.winning_ally_teams_size > 0) {
-            const team_ids = try match.allocator.alloc(u8, @intCast(match.header.winning_ally_teams_size));
-            defer match.allocator.free(team_ids);
+        if (self.match.header.winning_ally_teams_size > 0) {
+            const team_ids = try self.allocator.alloc(u8, @intCast(self.match.header.winning_ally_teams_size));
+            defer self.allocator.free(team_ids);
 
-            try reader.readMultipleU8(team_ids);
-            try match.statistics.winning_ally_team_ids.appendSlice(team_ids);
+            try self.gzip_stream.reader().readMultipleU8(team_ids);
+            try self.match.statistics.winning_ally_team_ids.appendSlice(team_ids);
         }
 
         // Read player statistics - batch read the raw data
-        if (match.header.player_count > 0) {
-            try match.statistics.player_stats.ensureTotalCapacity(@intCast(match.header.player_count));
+        if (self.match.header.player_count > 0) {
+            try self.match.statistics.player_stats.ensureTotalCapacity(@intCast(self.match.header.player_count));
 
-            for (0..@intCast(match.header.player_count)) |i| {
+            for (0..@intCast(self.match.header.player_count)) |i| {
                 // Read all 5 i32 values at once into a buffer
                 var stats_data: [5]i32 = undefined;
-                try reader.readMultipleI32LE(&stats_data);
+                try self.gzip_stream.reader().readMultipleI32LE(&stats_data);
 
                 const player_stat = PlayerStats{
                     .player_id = @intCast(i),
@@ -946,39 +708,39 @@ const BarDemofileParser = struct {
                     .mouse_clicks = stats_data[3],
                     .key_presses = stats_data[4],
                 };
-                match.statistics.player_stats.appendAssumeCapacity(player_stat);
+                self.match.statistics.player_stats.appendAssumeCapacity(player_stat);
             }
         }
 
         // Read team statistics - optimize for batch reading
-        if (match.header.team_count > 0) {
-            try match.statistics.team_stats.ensureTotalCapacity(@intCast(match.header.team_count));
+        if (self.match.header.team_count > 0) {
+            try self.match.statistics.team_stats.ensureTotalCapacity(@intCast(self.match.header.team_count));
 
             // First pass: read stat counts
-            const stat_counts = try match.allocator.alloc(i32, @intCast(match.header.team_count));
-            defer match.allocator.free(stat_counts);
+            const stat_counts = try self.allocator.alloc(i32, @intCast(self.match.header.team_count));
+            defer self.allocator.free(stat_counts);
 
-            try reader.readMultipleI32LE(stat_counts);
+            try self.gzip_stream.reader().readMultipleI32LE(stat_counts);
 
             // Initialize team stats with known capacities
-            for (0..@intCast(match.header.team_count)) |i| {
-                var team_stat = TeamStats.init(match.allocator);
+            for (0..@intCast(self.match.header.team_count)) |i| {
+                var team_stat = TeamStats.init(self.allocator);
                 team_stat.team_id = @intCast(i);
                 team_stat.stat_count = stat_counts[i];
 
                 // Add sanity check for stat count
                 if (stat_counts[i] < 0 or stat_counts[i] > 100000) {
                     print("Warning: Invalid stat count {} for team {}, skipping\n", .{ stat_counts[i], i });
-                    match.statistics.team_stats.appendAssumeCapacity(team_stat);
+                    self.match.statistics.team_stats.appendAssumeCapacity(team_stat);
                     continue;
                 }
 
                 try team_stat.entries.ensureTotalCapacity(@intCast(stat_counts[i]));
-                match.statistics.team_stats.appendAssumeCapacity(team_stat);
+                self.match.statistics.team_stats.appendAssumeCapacity(team_stat);
             }
 
             // Second pass: read actual frame statistics in batches
-            for (match.statistics.team_stats.items) |*team_stat| {
+            for (self.match.statistics.team_stats.items) |*team_stat| {
                 const entry_count = @as(usize, @intCast(team_stat.stat_count));
 
                 for (0..entry_count) |_| {
@@ -986,14 +748,14 @@ const BarDemofileParser = struct {
                     var frame_data: [20]f32 = undefined;
 
                     // Read frame (i32) and convert to f32 for batch processing
-                    const frame = try reader.readI32LE();
+                    const frame = try self.gzip_stream.reader().readI32LE();
 
                     // Read all float values at once
-                    try reader.readMultipleF32LE(frame_data[0..19]);
+                    try self.gzip_stream.reader().readMultipleF32LE(frame_data[0..19]);
 
                     // Read integer values
                     var int_data: [7]i32 = undefined;
-                    try reader.readMultipleI32LE(&int_data);
+                    try self.gzip_stream.reader().readMultipleI32LE(&int_data);
 
                     const frame_stat = TeamStatsDataPoint{
                         .team_id = team_stat.team_id,
@@ -1024,7 +786,7 @@ const BarDemofileParser = struct {
         }
     }
 
-    fn processPacketStreaming(game_time: i32, length: u32, packet_type: u8, reader: *StreamingByteReader, match: *BarMatch) !void {
+    fn processPacketStreaming(self: *BarDemofileParser, game_time: i32, length: u32, packet_type: u8) !void {
         // Calculate remaining bytes to read (subtract 1 for the packet type we already read)
         const remaining_bytes = if (length > 1) length - 1 else 0;
 
@@ -1033,16 +795,16 @@ const BarDemofileParser = struct {
                 // NETMSG_CHAT has format: uint8_t messageSize; uint8_t from, dest; std::string message;
                 // The messageSize is redundant (same as packet length), so we ignore it
                 if (remaining_bytes < 3) {
-                    try reader.skipBytes(remaining_bytes);
+                    try self.gzip_stream.reader().skipBytes(remaining_bytes);
                     return;
                 }
-                try reader.skipBytes(1); // Skip message size byte
-                const from_id = try reader.readU8();
-                const to_id = try reader.readU8();
+                try self.gzip_stream.reader().skipBytes(1); // Skip message size byte
+                const from_id = try self.gzip_stream.reader().readU8();
+                const to_id = try self.gzip_stream.reader().readU8();
                 // The actual message length is remaining_bytes - 3 (for the 3 bytes we just read)
                 const message_len = remaining_bytes - 3;
                 const message = if (message_len > 0) blk: {
-                    const message_bytes = try reader.readBytes(message_len);
+                    const message_bytes = try self.gzip_stream.reader().readBytes(message_len);
                     // Find null terminator
                     var actual_len: usize = 0;
                     for (message_bytes) |byte| {
@@ -1050,26 +812,26 @@ const BarDemofileParser = struct {
                         actual_len += 1;
                     }
                     // Create properly sized message
-                    const result = try match.allocator.alloc(u8, actual_len);
+                    const result = try self.allocator.alloc(u8, actual_len);
                     @memcpy(result, message_bytes[0..actual_len]);
-                    match.allocator.free(message_bytes);
+                    self.allocator.free(message_bytes);
                     break :blk result;
-                } else try match.allocator.alloc(u8, 0);
+                } else try self.allocator.alloc(u8, 0);
                 const msg = ChatMessage{
                     .from_id = from_id,
                     .to_id = to_id,
                     .message = message,
                     .game_timestamp = game_time,
                 };
-                try match.chat_messages.append(msg);
+                try self.match.chat_messages.append(msg);
             },
 
             NETMSG.TEAM => {
                 // NETMSG_TEAM: uint8_t playerNum; uint8_t action; uint8_t param1;
                 if (remaining_bytes >= 3) {
-                    const player_num = try reader.readU8();
-                    const action = try reader.readU8();
-                    const param1 = try reader.readU8();
+                    const player_num = try self.gzip_stream.reader().readU8();
+                    const action = try self.gzip_stream.reader().readU8();
+                    const param1 = try self.gzip_stream.reader().readU8();
 
                     if (action == 2) { // 2 = resigned
                         const death = TeamDeath{
@@ -1077,47 +839,40 @@ const BarDemofileParser = struct {
                             .reason = action,
                             .game_time = game_time,
                         };
-                        try match.team_deaths.append(death);
+                        try self.match.team_deaths.append(death);
                     } else if (action == 4) { // 4 = TEAM_DIED, param1 = team that died
                         const death = TeamDeath{
                             .team_id = param1,
                             .reason = action,
                             .game_time = game_time,
                         };
-                        try match.team_deaths.append(death);
+                        try self.match.team_deaths.append(death);
                     }
 
                     // Skip any remaining bytes
                     if (remaining_bytes > 3) {
-                        try reader.skipBytes(remaining_bytes - 3);
+                        try self.gzip_stream.reader().skipBytes(remaining_bytes - 3);
                     }
                 } else {
-                    try reader.skipBytes(remaining_bytes);
+                    try self.gzip_stream.reader().skipBytes(remaining_bytes);
                 }
             },
 
             else => {
                 // Skip unknown packet types
                 if (remaining_bytes > 0) {
-                    try reader.skipBytes(remaining_bytes);
+                    try self.gzip_stream.reader().skipBytes(remaining_bytes);
                 }
             },
         }
     }
 };
 
-pub fn parseDemofile(allocator: Allocator, filename: []const u8, demofile: []const u8) !BarMatch {
-    var parser = BarDemofileParser.init(allocator);
-    return parser.parse(filename, demofile);
-}
-
 pub fn main() !void {
     var total_timer = std.time.Timer.start() catch unreachable;
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-
-    var parser = BarDemofileParser.init(allocator);
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
@@ -1131,11 +886,11 @@ pub fn main() !void {
     const file_path = args[1];
     const mode_str = if (args.len > 2) args[2] else "header";
     const mode = if (std.mem.eql(u8, mode_str, "header")) ParseMode.HEADER_ONLY else if (std.mem.eql(u8, mode_str, "metadata")) ParseMode.METADATA_ONLY else if (std.mem.eql(u8, mode_str, "essential")) ParseMode.ESSENTIAL_ONLY else if (std.mem.eql(u8, mode_str, "full")) ParseMode.FULL else ParseMode.HEADER_ONLY;
-    const file_data = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024 * 500); // 500MB max
-    defer allocator.free(file_data);
 
-    const file_name = std.fs.path.basename(file_path);
-    var match = try parser.parseWithMode(file_name, file_data, mode);
+    var parser = try BarDemofileParser.init(allocator, file_path, mode);
+    // defer parser.deinit();
+
+    var match = try parser.parse();
     defer match.deinit();
 
     // Convert to JSON and print
@@ -1152,21 +907,11 @@ pub fn main() !void {
 
 // WASM handles
 
-// Global variables to store the result (use a simple approach)
-var global_json_result: [1024 * 1024]u8 = undefined; // 1MB buffer
-var global_json_length: u32 = 0;
-var global_error_message: [1024]u8 = undefined;
-var global_error_length: usize = 0;
-
 // Simple exported function that takes a file path and returns length of JSON (0 if error)
 export fn parse_demo_file(file_path_ptr: [*]const u8, file_path_len: u32, mode: u8) u32 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-
-    // Reset global state
-    global_json_length = 0;
-    global_error_length = 0;
 
     // Convert C string to Zig slice
     const file_path = file_path_ptr[0..file_path_len];
@@ -1180,76 +925,32 @@ export fn parse_demo_file(file_path_ptr: [*]const u8, file_path_len: u32, mode: 
         else => ParseMode.METADATA_ONLY,
     };
 
+    const stdout = std.io.getStdOut().writer();
+
     // Parse the demo file
-    const result = parseDemoFileInternal(allocator, file_path, parse_mode);
-
-    if (result) |json| {
-        defer allocator.free(json);
-
-        // Copy to global buffer
-        if (json.len <= global_json_result.len) {
-            @memcpy(global_json_result[0..json.len], json);
-            global_json_length = @intCast(json.len);
-            return global_json_length;
-        } else {
-            // JSON too large
-            const error_msg = "JSON result too large for buffer";
-            @memcpy(global_error_message[0..error_msg.len], error_msg);
-            global_error_length = error_msg.len;
-            return 0;
-        }
-    } else |err| {
-        // Store error message
-        const error_msg = switch (err) {
-            error.FileNotFound => "File not found",
-            error.AccessDenied => "Access denied",
-            error.OutOfMemory => "Out of memory",
-            error.InvalidMagic => "Invalid demo file format",
-            error.InvalidGameId => "Invalid game ID",
-            error.DecompressionTooLarge => "Decompression too large",
-            else => "Unknown error",
-        };
-
-        @memcpy(global_error_message[0..error_msg.len], error_msg);
-        global_error_length = error_msg.len;
-        return 0;
-    }
-}
-
-// Get the JSON result buffer pointer
-export fn get_json_buffer() [*]u8 {
-    return &global_json_result;
-}
-
-// Get the error message buffer pointer
-export fn get_error_buffer() [*]u8 {
-    return &global_error_message;
-}
-
-// Get error message length
-export fn get_error_length() usize {
-    return global_error_length;
-}
-
-// Internal parsing function (same as before)
-fn parseDemoFileInternal(allocator: Allocator, file_name: []const u8, mode: ParseMode) ![]u8 {
-    // Read the file
-    const file_data = std.fs.cwd().readFileAlloc(allocator, file_name, 1024 * 1024 * 500) catch |err| {
-        return err;
+    var parser = BarDemofileParser.init(allocator, file_path, parse_mode) catch |err| {
+        print("Error initializing parser: {}\n", .{err});
+        return 0; // Return 0 on error
     };
-    defer allocator.free(file_data);
+    // defer parser.deinit();
 
-    // Parse the demo file
-    var parser = BarDemofileParser.init(allocator);
-    var match = parser.parseWithMode(file_name, file_data, mode) catch |err| {
-        return err;
+    var match = parser.parse() catch |err| {
+        print("Error parsing demo file: {}\n", .{err});
+        return 0; // Return 0 on error
     };
     defer match.deinit();
 
-    // Convert to JSON
     const json = match.toJson(allocator) catch |err| {
-        return err;
+        print("Error converting match to JSON: {}\n", .{err});
+        return 0; // Return 0 on error
+    };
+    defer allocator.free(json);
+
+    // Print the JSON to stdout (or handle it as needed)
+    stdout.writeAll(json) catch |err| {
+        print("Error writing JSON to stdout: {}\n", .{err});
+        return 0; // Return 0 on error
     };
 
-    return json;
+    return @intCast(json.len); // Return length of JSON string
 }
