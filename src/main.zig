@@ -402,33 +402,29 @@ const ParseMode = enum {
 
 // Main parser
 const BarDemofileParser = struct {
-    // file: std.fs.File,
+    file_data: []u8,
+    fixed_buffer_stream: std.io.FixedBufferStream([]u8),
     mode: ParseMode,
-    // gzip_stream: std.compress.gzip.Decompressor(std.fs.File.Reader),
     gzip_stream: std.compress.gzip.Decompressor(std.io.FixedBufferStream([]u8).Reader),
     allocator: Allocator,
 
     pub fn init(allocator: Allocator, file_path: []const u8, mode: ParseMode) !BarDemofileParser {
-        const file_data = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024 * 500); // 500MB max
-        defer allocator.free(file_data);
-
+        const file_data = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024 * 50); // 50MB max
         var fixed_buffer_stream = std.io.fixedBufferStream(file_data);
         const gzip_stream = std.compress.gzip.decompressor(fixed_buffer_stream.reader());
 
-        // const file = try std.fs.cwd().openFile(file_path, .{});
-        // const gzip_stream = std.compress.gzip.decompressor(file.reader());
-
         return BarDemofileParser{
-            // .file = file,
+            .file_data = file_data,
+            .fixed_buffer_stream = fixed_buffer_stream,
             .mode = mode,
             .gzip_stream = gzip_stream,
             .allocator = allocator,
         };
     }
 
-    // pub fn deinit(self: *BarDemofileParser) void {
-    //     self.file.close();
-    // }
+    pub fn deinit(self: *BarDemofileParser) void {
+        self.allocator.free(self.file_data); // Free it in deinit
+    }
 
     // Packet types (NETMSG from NetMessageTypes.h)
     // https://github.com/beyond-all-reason/RecoilEngine/blob/master/rts/Net/Protocol/NetMessageTypes.h
@@ -888,7 +884,7 @@ pub fn main() !void {
     const mode = if (std.mem.eql(u8, mode_str, "header")) ParseMode.HEADER_ONLY else if (std.mem.eql(u8, mode_str, "metadata")) ParseMode.METADATA_ONLY else if (std.mem.eql(u8, mode_str, "essential")) ParseMode.ESSENTIAL_ONLY else if (std.mem.eql(u8, mode_str, "full")) ParseMode.FULL else ParseMode.HEADER_ONLY;
 
     var parser = try BarDemofileParser.init(allocator, file_path, mode);
-    // defer parser.deinit();
+    defer parser.deinit();
 
     var match = try parser.parse();
     defer match.deinit();
@@ -932,7 +928,7 @@ export fn parse_demo_file(file_path_ptr: [*]const u8, file_path_len: u32, mode: 
         print("Error initializing parser: {}\n", .{err});
         return 0; // Return 0 on error
     };
-    // defer parser.deinit();
+    defer parser.deinit();
 
     var match = parser.parse() catch |err| {
         print("Error parsing demo file: {}\n", .{err});
