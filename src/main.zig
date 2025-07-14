@@ -826,11 +826,14 @@ const BarDemofileParser = struct {
         // Read header
         match.header = try reader.gzip_stream.reader().readStructEndian(Header, .little);
 
+        // Validate header
+        if (!std.mem.eql(u8, &match.header.magic, "spring demofile\x00")) {
+            return ParseError.InvalidHeader;
+        }
+
         // Calculate offsets (these are calculated based on the header information)
         match.packet_offset = @sizeOf(Header) + match.header.script_size;
         match.stat_offset = match.packet_offset + match.header.demo_stream_size;
-
-        print("gameID={x}", .{std.fmt.fmtSliceHexLower(&match.header.game_id)});
 
         // Early exit for header-only mode
         if (mode == .HEADER_ONLY) {
