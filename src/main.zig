@@ -226,7 +226,6 @@ fn escapeJsonString(allocator: Allocator, input: []const u8) ![]u8 {
     return result.toOwnedSlice();
 }
 
-// Main match structure
 const BarMatch = struct {
     header: Header,
     game_config: gameconfig_parser.GameConfig,
@@ -263,7 +262,11 @@ const BarMatch = struct {
         self.allocator.free(self.statistics.team_stats);
     }
 
-    pub fn toJson(self: *const BarMatch, allocator: Allocator) ![]u8 {
+    const JsonSerializingOptions = struct {
+        null_terminate: bool = false, // Whether to null-terminate the JSON string
+    };
+
+    pub fn toJson(self: *const BarMatch, allocator: Allocator, options: JsonSerializingOptions) ![]u8 {
         // Pre-calculate approximate size to reduce reallocations
         const estimated_size = 8192;
 
@@ -349,11 +352,15 @@ const BarMatch = struct {
         try writer.writeAll(game_config_json);
 
         try writer.writeByte('}');
+
+        if (options.null_terminate) {
+            try writer.writeByte(0);
+        }
+
         return json_str.toOwnedSlice();
     }
 };
 
-// Header structure
 // https://github.com/beyond-all-reason/RecoilEngine/blob/7c505ac918a50ffce413ebcfe9f8ff9e342c8efd/rts/System/LoadSave/demofile.h
 const Header = extern struct {
     magic: [16]u8, // DEMOFILE_MAGIC
@@ -380,7 +387,6 @@ const Header = extern struct {
     }
 };
 
-// Parse mode enum for controlling what gets parsed
 const ParseMode = enum {
     HEADER_ONLY, // Only parse header (fastest)
     METADATA_ONLY, // Parse header + basic metadata
@@ -388,7 +394,6 @@ const ParseMode = enum {
     FULL, // Parse everything (slowest)
 };
 
-// Main parser
 const BarDemofileParser = struct {
     file_data: []u8,
     fixed_buffer_stream: std.io.FixedBufferStream([]u8),
@@ -854,6 +859,11 @@ const BarDemofileParser = struct {
 };
 
 pub fn main() !void {
+    comptime {
+        if (@import("builtin").target.os.tag == .wasi) {
+            return; // Exit early for WASI builds
+        }
+    }
     var total_timer = std.time.Timer.start() catch unreachable;
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -879,7 +889,7 @@ pub fn main() !void {
     defer match.deinit();
 
     // Convert to JSON and print
-    const json = try match.toJson(allocator);
+    const json = try match.toJson(allocator, .{});
     defer allocator.free(json);
 
     // Total time taken
@@ -891,12 +901,45 @@ pub fn main() !void {
 }
 
 // WASM handles
+var g_allocator: std.mem.Allocator = undefined;
+var g_gpa: std.heap.GeneralPurposeAllocator(.{}) = undefined;
+var g_output_buffer: []u8 = undefined;
+var g_initialized: bool = false;
 
-// Simple exported function that takes a file path and returns length of JSON (0 if error)
-export fn parse_demo_file(file_path_ptr: [*]const u8, file_path_len: u32, mode: u8) u32 {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+// Initialize the allocator (call this once)
+export fn wasm_init() void {
+    g_gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    g_allocator = g_gpa.allocator();
+    g_initialized = true;
+}
+
+// Clean up resources (call this when done)
+export fn wasm_cleanup() void {
+    if (g_initialized) {
+        if (g_output_buffer.len > 0) {
+            g_allocator.free(g_output_buffer);
+            g_output_buffer = undefined;
+        }
+        _ = g_gpa.deinit();
+        g_initialized = false;
+    }
+}
+
+// Free the current output buffer
+export fn wasm_free_output() void {
+    if (g_initialized and g_output_buffer.len > 0) {
+        g_allocator.free(g_output_buffer);
+        g_output_buffer = &[_]u8{};
+    }
+}
+
+export fn parse_demo_file(file_path_ptr: [*]const u8, file_path_len: u32, mode: u8) usize {
+    if (!g_initialized) {
+        wasm_init();
+    }
+
+    // Free any existing output buffer
+    wasm_free_output();
 
     // Convert C string to Zig slice
     const file_path = file_path_ptr[0..file_path_len];
@@ -910,32 +953,23 @@ export fn parse_demo_file(file_path_ptr: [*]const u8, file_path_len: u32, mode: 
         else => ParseMode.METADATA_ONLY,
     };
 
-    const stdout = std.io.getStdOut().writer();
-
     // Parse the demo file
-    var parser = BarDemofileParser.init(allocator, file_path, parse_mode) catch |err| {
+    var parser = BarDemofileParser.init(g_allocator, file_path, parse_mode) catch |err| {
         print("Error initializing parser: {}\n", .{err});
-        return 0; // Return 0 on error
+        return 0;
     };
     defer parser.deinit();
 
     var match = parser.parse() catch |err| {
         print("Error parsing demo file: {}\n", .{err});
-        return 0; // Return 0 on error
+        return 0;
     };
     defer match.deinit();
 
-    const json = match.toJson(allocator) catch |err| {
+    g_output_buffer = match.toJson(g_allocator) catch |err| {
         print("Error converting match to JSON: {}\n", .{err});
-        return 0; // Return 0 on error
-    };
-    defer allocator.free(json);
-
-    // Print the JSON to stdout (or handle it as needed)
-    stdout.writeAll(json) catch |err| {
-        print("Error writing JSON to stdout: {}\n", .{err});
-        return 0; // Return 0 on error
+        return 0;
     };
 
-    return @intCast(json.len); // Return length of JSON string
+    return g_output_buffer.len;
 }

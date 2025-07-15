@@ -3,7 +3,6 @@ const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
 const Allocator = std.mem.Allocator;
 const print = std.debug.print;
-const json = std.json;
 
 // Pre-allocated string constants to avoid repeated allocations
 const JSON_CONSTANTS = struct {
@@ -696,73 +695,4 @@ pub fn parseScript(allocator: Allocator, script: []const u8) !GameConfig {
     var parser = GameConfigParser.init(allocator, &config.string_pool);
     try parser.parse(script, &config);
     return config;
-}
-
-// Test function
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const sample_input =
-        \\[player0]
-        \\{
-        \\team=0;
-        \\countrycode=FR;
-        \\accountid=226535;
-        \\name=Kamfrenchie;
-        \\rank=4;
-        \\skill=[31.53];
-        \\spectator=0;
-        \\skilluncertainty=3.07;
-        \\}
-        \\[team0]
-        \\{
-        \\allyteam=0;
-        \\teamleader=0;
-        \\rgbcolor=0.05098 0.73725 0.54118;
-        \\side=Armada;
-        \\handicap=0;
-        \\}
-        \\[player1]
-        \\{
-        \\team=1;
-        \\countrycode=US;
-        \\accountid=12345;
-        \\name=TestPlayer;
-        \\rank=3;
-        \\skill=[25.98];
-        \\spectator=0;
-        \\skilluncertainty=4.12;
-        \\}
-        \\[team1]
-        \\{
-        \\allyteam=1;
-        \\teamleader=1;
-        \\rgbcolor=0.88627 0.03137 0.67843;
-        \\side=Cortex;
-        \\handicap=0;
-        \\}
-        \\ishost=1;
-        \\numplayers=2;
-        \\mapname=Test Map;
-    ;
-
-    var config = try parseScript(allocator, sample_input);
-    defer config.deinit();
-
-    print("Parsed config successfully!\n");
-    print("Players: {}\n", .{config.players.items.len});
-    print("Teams: {}\n", .{config.teams.items.len});
-    print("Map name: {?s}\n", .{config.mapname});
-
-    // Performance test
-    var timer = std.time.Timer.start() catch unreachable;
-    const json_output = try config.toJson(allocator);
-    const elapsed = timer.read() / std.time.ns_per_us;
-    defer allocator.free(json_output);
-
-    print("JSON generation took: {}μs\n", .{elapsed});
-    print("JSON size: {} bytes\n", .{json_output.len});
-    print("JSON output:\n{s}\n", .{json_output});
 }
