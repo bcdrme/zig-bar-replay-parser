@@ -75,8 +75,8 @@ const PacketType = struct {
     const PING: u8 = 78;
 };
 
-fn packetTypeToString(packetType: u8) []const u8 {
-    return switch (packetType) {
+fn packetTypeToString(packet_type: u8) []const u8 {
+    return switch (packet_type) {
         PacketType.KEYFRAME => "KEYFRAME",
         PacketType.NEW_FRAME => "NEW_FRAME",
         PacketType.QUIT => "QUIT",
@@ -262,11 +262,7 @@ const BarMatch = struct {
         self.allocator.free(self.statistics.team_stats);
     }
 
-    const JsonSerializingOptions = struct {
-        null_terminate: bool = false, // Whether to null-terminate the JSON string
-    };
-
-    pub fn toJson(self: *const BarMatch, allocator: Allocator, options: JsonSerializingOptions) ![]u8 {
+    pub fn toJson(self: *const BarMatch, allocator: Allocator) ![]u8 {
         // Pre-calculate approximate size to reduce reallocations
         const estimated_size = 8192;
 
@@ -353,10 +349,6 @@ const BarMatch = struct {
 
         try writer.writeByte('}');
 
-        if (options.null_terminate) {
-            try writer.writeByte(0);
-        }
-
         return json_str.toOwnedSlice();
     }
 };
@@ -388,10 +380,10 @@ const Header = extern struct {
 };
 
 const ParseMode = enum {
-    HEADER_ONLY, // Only parse header (fastest)
-    METADATA_ONLY, // Parse header + basic metadata
-    ESSENTIAL_ONLY, // Parse header + essential packets (chat, game events)
-    FULL, // Parse everything (slowest)
+    header_only, // Only parse header (fastest)
+    metadata_only, // Parse header + basic metadata
+    essential_only, // Parse header + essential packets (chat, game events)
+    full, // Parse everything (slowest)
 };
 
 const BarDemofileParser = struct {
@@ -402,14 +394,13 @@ const BarDemofileParser = struct {
     allocator: Allocator,
 
     pub fn init(allocator: Allocator, file_path: []const u8, mode: ParseMode) !BarDemofileParser {
-
         // Only read the first MB
         const file = try std.fs.cwd().openFile(file_path, .{});
         defer file.close();
 
         var file_data: []u8 = undefined;
         // TODO could read the header, check magic number, and adjust buffer relative game.header.script_size
-        if (mode == .HEADER_ONLY or mode == .METADATA_ONLY) {
+        if (mode == .header_only or mode == .metadata_only) {
             file_data = try allocator.alloc(u8, 1024 * 512);
         } else {
             file_data = try allocator.alloc(u8, 1024 * 1024 * 50); // 50MB max
@@ -435,7 +426,7 @@ const BarDemofileParser = struct {
 
     // Packet types (NETMSG from NetMessageTypes.h)
     // https://github.com/beyond-all-reason/RecoilEngine/blob/master/rts/Net/Protocol/NetMessageTypes.h
-    const NETMSG = struct {
+    const NetMsg = struct {
         const KEYFRAME: u8 = 1;
         const NEWFRAME: u8 = 2;
         const QUIT: u8 = 3;
@@ -495,61 +486,61 @@ const BarDemofileParser = struct {
 
     fn netmsgToString(netmsg: u8) []const u8 {
         return switch (netmsg) {
-            NETMSG.KEYFRAME => "NETMSG_KEYFRAME",
-            NETMSG.NEWFRAME => "NETMSG_NEWFRAME",
-            NETMSG.QUIT => "NETMSG_QUIT",
-            NETMSG.STARTPLAYING => "NETMSG_STARTPLAYING",
-            NETMSG.SETPLAYERNUM => "NETMSG_SETPLAYERNUM",
-            NETMSG.PLAYERNAME => "NETMSG_PLAYERNAME",
-            NETMSG.CHAT => "NETMSG_CHAT",
-            NETMSG.RANDSEED => "NETMSG_RANDSEED",
-            NETMSG.GAMEID => "NETMSG_GAMEID",
-            NETMSG.PATH_CHECKSUM => "NETMSG_PATH_CHECKSUM",
-            NETMSG.COMMAND => "NETMSG_COMMAND",
-            NETMSG.SELECT => "NETMSG_SELECT",
-            NETMSG.PAUSE => "NETMSG_PAUSE",
-            NETMSG.AICOMMAND => "NETMSG_AICOMMAND",
-            NETMSG.AICOMMANDS => "NETMSG_AICOMMANDS",
-            NETMSG.AISHARE => "NETMSG_AISHARE",
-            NETMSG.USER_SPEED => "NETMSG_USER_SPEED",
-            NETMSG.INTERNAL_SPEED => "NETMSG_INTERNAL_SPEED",
-            NETMSG.CPU_USAGE => "NETMSG_CPU_USAGE",
-            NETMSG.DIRECT_CONTROL => "NETMSG_DIRECT_CONTROL",
-            NETMSG.DC_UPDATE => "NETMSG_DC_UPDATE",
-            NETMSG.SHARE => "NETMSG_SHARE",
-            NETMSG.SETSHARE => "NETMSG_SETSHARE",
-            NETMSG.PLAYERSTAT => "NETMSG_PLAYERSTAT",
-            NETMSG.GAMEOVER => "NETMSG_GAMEOVER",
-            NETMSG.MAPDRAW_OLD => "NETMSG_MAPDRAW_OLD",
-            NETMSG.MAPDRAW => "NETMSG_MAPDRAW",
-            NETMSG.SYNCRESPONSE => "NETMSG_SYNCRESPONSE",
-            NETMSG.SYSTEMMSG => "NETMSG_SYSTEMMSG",
-            NETMSG.STARTPOS => "NETMSG_STARTPOS",
-            NETMSG.PLAYERINFO => "NETMSG_PLAYERINFO",
-            NETMSG.PLAYERLEFT => "NETMSG_PLAYERLEFT",
-            NETMSG.SD_CHKREQUEST => "NETMSG_SD_CHKREQUEST",
-            NETMSG.SD_CHKRESPONSE => "NETMSG_SD_CHKRESPONSE",
-            NETMSG.SD_BLKREQUEST => "NETMSG_SD_BLKREQUEST",
-            NETMSG.SD_BLKRESPONSE => "NETMSG_SD_BLKRESPONSE",
-            NETMSG.SD_RESET => "NETMSG_SD_RESET",
-            NETMSG.GAMESTATE_DUMP => "NETMSG_GAMESTATE_DUMP",
-            NETMSG.LOGMSG => "NETMSG_LOGMSG",
-            NETMSG.LUAMSG => "NETMSG_LUAMSG",
-            NETMSG.TEAM => "NETMSG_TEAM",
-            NETMSG.GAMEDATA => "NETMSG_GAMEDATA",
-            NETMSG.ALLIANCE => "NETMSG_ALLIANCE",
-            NETMSG.CCOMMAND => "NETMSG_CCOMMAND",
-            NETMSG.TEAMSTAT => "NETMSG_TEAMSTAT",
-            NETMSG.CLIENTDATA => "NETMSG_CLIENTDATA",
-            NETMSG.ATTEMPTCONNECT => "NETMSG_ATTEMPTCONNECT",
-            NETMSG.REJECTCONNECT => "NETMSG_REJECTCONNECT",
-            NETMSG.AI_CREATED => "NETMSG_AI_CREATED",
-            NETMSG.AI_STATE_CHANGED => "NETMSG_AI_STATE_CHANGED",
-            NETMSG.REQUEST_TEAMSTAT => "NETMSG_REQUEST_TEAMSTAT",
-            NETMSG.CREATE_NEWPLAYER => "NETMSG_CREATE_NEWPLAYER",
-            NETMSG.AICOMMAND_TRACKED => "NETMSG_AICOMMAND_TRACKED",
-            NETMSG.GAME_FRAME_PROGRESS => "NETMSG_GAME_FRAME_PROGRESS",
-            NETMSG.PING => "NETMSG_PING",
+            NetMsg.KEYFRAME => "NETMSG_KEYFRAME",
+            NetMsg.NEWFRAME => "NETMSG_NEWFRAME",
+            NetMsg.QUIT => "NETMSG_QUIT",
+            NetMsg.STARTPLAYING => "NETMSG_STARTPLAYING",
+            NetMsg.SETPLAYERNUM => "NETMSG_SETPLAYERNUM",
+            NetMsg.PLAYERNAME => "NETMSG_PLAYERNAME",
+            NetMsg.CHAT => "NETMSG_CHAT",
+            NetMsg.RANDSEED => "NETMSG_RANDSEED",
+            NetMsg.GAMEID => "NETMSG_GAMEID",
+            NetMsg.PATH_CHECKSUM => "NETMSG_PATH_CHECKSUM",
+            NetMsg.COMMAND => "NETMSG_COMMAND",
+            NetMsg.SELECT => "NETMSG_SELECT",
+            NetMsg.PAUSE => "NETMSG_PAUSE",
+            NetMsg.AICOMMAND => "NETMSG_AICOMMAND",
+            NetMsg.AICOMMANDS => "NETMSG_AICOMMANDS",
+            NetMsg.AISHARE => "NETMSG_AISHARE",
+            NetMsg.USER_SPEED => "NETMSG_USER_SPEED",
+            NetMsg.INTERNAL_SPEED => "NETMSG_INTERNAL_SPEED",
+            NetMsg.CPU_USAGE => "NETMSG_CPU_USAGE",
+            NetMsg.DIRECT_CONTROL => "NETMSG_DIRECT_CONTROL",
+            NetMsg.DC_UPDATE => "NETMSG_DC_UPDATE",
+            NetMsg.SHARE => "NETMSG_SHARE",
+            NetMsg.SETSHARE => "NETMSG_SETSHARE",
+            NetMsg.PLAYERSTAT => "NETMSG_PLAYERSTAT",
+            NetMsg.GAMEOVER => "NETMSG_GAMEOVER",
+            NetMsg.MAPDRAW_OLD => "NETMSG_MAPDRAW_OLD",
+            NetMsg.MAPDRAW => "NETMSG_MAPDRAW",
+            NetMsg.SYNCRESPONSE => "NETMSG_SYNCRESPONSE",
+            NetMsg.SYSTEMMSG => "NETMSG_SYSTEMMSG",
+            NetMsg.STARTPOS => "NETMSG_STARTPOS",
+            NetMsg.PLAYERINFO => "NETMSG_PLAYERINFO",
+            NetMsg.PLAYERLEFT => "NETMSG_PLAYERLEFT",
+            NetMsg.SD_CHKREQUEST => "NETMSG_SD_CHKREQUEST",
+            NetMsg.SD_CHKRESPONSE => "NETMSG_SD_CHKRESPONSE",
+            NetMsg.SD_BLKREQUEST => "NETMSG_SD_BLKREQUEST",
+            NetMsg.SD_BLKRESPONSE => "NETMSG_SD_BLKRESPONSE",
+            NetMsg.SD_RESET => "NETMSG_SD_RESET",
+            NetMsg.GAMESTATE_DUMP => "NETMSG_GAMESTATE_DUMP",
+            NetMsg.LOGMSG => "NETMSG_LOGMSG",
+            NetMsg.LUAMSG => "NETMSG_LUAMSG",
+            NetMsg.TEAM => "NETMSG_TEAM",
+            NetMsg.GAMEDATA => "NETMSG_GAMEDATA",
+            NetMsg.ALLIANCE => "NETMSG_ALLIANCE",
+            NetMsg.CCOMMAND => "NETMSG_CCOMMAND",
+            NetMsg.TEAMSTAT => "NETMSG_TEAMSTAT",
+            NetMsg.CLIENTDATA => "NETMSG_CLIENTDATA",
+            NetMsg.ATTEMPTCONNECT => "NETMSG_ATTEMPTCONNECT",
+            NetMsg.REJECTCONNECT => "NETMSG_REJECTCONNECT",
+            NetMsg.AI_CREATED => "NETMSG_AI_CREATED",
+            NetMsg.AI_STATE_CHANGED => "NETMSG_AI_STATE_CHANGED",
+            NetMsg.REQUEST_TEAMSTAT => "NETMSG_REQUEST_TEAMSTAT",
+            NetMsg.CREATE_NEWPLAYER => "NETMSG_CREATE_NEWPLAYER",
+            NetMsg.AICOMMAND_TRACKED => "NETMSG_AICOMMAND_TRACKED",
+            NetMsg.GAME_FRAME_PROGRESS => "NETMSG_GAME_FRAME_PROGRESS",
+            NetMsg.PING => "NETMSG_PING",
             else => "UNKNOWN",
         };
     }
@@ -571,7 +562,7 @@ const BarDemofileParser = struct {
         match.stat_offset = match.packet_offset + match.header.demo_stream_size;
 
         // Early exit for header-only mode
-        if (self.mode == .HEADER_ONLY) {
+        if (self.mode == .header_only) {
             match.game_config = gameconfig_parser.GameConfig.init(self.allocator);
             return match;
         }
@@ -586,12 +577,12 @@ const BarDemofileParser = struct {
             match.game_config = try gameconfig_parser.parseScript(self.allocator, script);
         }
 
-        if (self.mode == .METADATA_ONLY) {
+        if (self.mode == .metadata_only) {
             return match; // Return early for metadata-only mode
         }
 
         // Parse packets or skip demo stream data
-        // if (mode == .ESSENTIAL_ONLY or mode == .FULL) {
+        // if (mode == .essential_only or mode == .full) {
         //     parsePacketsStreaming(reader, &match, mode) catch |err| {
         //         print("Warning: packet parsing failed: {}\n", .{err});
         //         print("[reader position={}] [packet count={}] [packet parsed={}]\n", .{ reader.reader_pos, match.packet_count, match.packet_parsed });
@@ -612,11 +603,11 @@ const BarDemofileParser = struct {
     }
 
     fn parsePacketsStreaming(self: *BarDemofileParser, match: *BarMatch, mode: ParseMode) !void {
-        var packetBytesRead: usize = 0;
+        var packet_bytes_read: usize = 0;
         while (true) {
             // Check if we are finished reading the demo stream
             if (self.gzip_stream.reader().reader_pos >= match.stat_offset) {
-                print("Reached end of demo stream [packet bytes read={}]\n", .{packetBytesRead});
+                print("Reached end of demo stream [packet bytes read={}]\n", .{packet_bytes_read});
                 break;
             }
 
@@ -630,7 +621,7 @@ const BarDemofileParser = struct {
             const packet_type = try self.gzip_stream.reader().readU8();
 
             match.packet_count += 1;
-            packetBytesRead += length;
+            packet_bytes_read += length;
 
             if (match.packet_count >= 895936) {
                 print("packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
@@ -641,13 +632,13 @@ const BarDemofileParser = struct {
                 continue;
             }
 
-            // Only process essential packets in ESSENTIAL_ONLY mode
+            // Only process essential packets in essential_only mode
             const should_process = switch (mode) {
-                .ESSENTIAL_ONLY =>
-                // packet_type == NETMSG.CHAT or
-                packet_type == NETMSG.GAMEOVER or
-                    packet_type == NETMSG.QUIT,
-                .FULL => true,
+                .essential_only =>
+                // packet_type == NetMsg.CHAT or
+                packet_type == NetMsg.GAMEOVER or
+                    packet_type == NetMsg.QUIT,
+                .full => true,
                 else => false,
             };
 
@@ -666,7 +657,7 @@ const BarDemofileParser = struct {
                 }
             }
 
-            // if (packet_type == NETMSG.QUIT) {
+            // if (packet_type == NetMsg.QUIT) {
             //     print("found quit packet, breaking [packet count={}]\n", .{match.packet_count});
             //     break;
             // }
@@ -781,7 +772,7 @@ const BarDemofileParser = struct {
         const remaining_bytes = if (length > 1) length - 1 else 0;
 
         switch (packet_type) {
-            NETMSG.CHAT => {
+            NetMsg.CHAT => {
                 // NETMSG_CHAT has format: uint8_t messageSize; uint8_t from, dest; std::string message;
                 // The messageSize is redundant (same as packet length), so we ignore it
                 if (remaining_bytes < 3) {
@@ -816,7 +807,7 @@ const BarDemofileParser = struct {
                 try self.match.chat_messages.append(msg);
             },
 
-            NETMSG.TEAM => {
+            NetMsg.TEAM => {
                 // NETMSG_TEAM: uint8_t playerNum; uint8_t action; uint8_t param1;
                 if (remaining_bytes >= 3) {
                     const player_num = try self.gzip_stream.reader().readU8();
@@ -880,7 +871,7 @@ pub fn main() !void {
 
     const file_path = args[1];
     const mode_str = if (args.len > 2) args[2] else "header";
-    const mode = if (std.mem.eql(u8, mode_str, "header")) ParseMode.HEADER_ONLY else if (std.mem.eql(u8, mode_str, "metadata")) ParseMode.METADATA_ONLY else if (std.mem.eql(u8, mode_str, "essential")) ParseMode.ESSENTIAL_ONLY else if (std.mem.eql(u8, mode_str, "full")) ParseMode.FULL else ParseMode.HEADER_ONLY;
+    const mode = if (std.mem.eql(u8, mode_str, "header")) ParseMode.header_only else if (std.mem.eql(u8, mode_str, "metadata")) ParseMode.metadata_only else if (std.mem.eql(u8, mode_str, "essential")) ParseMode.essential_only else if (std.mem.eql(u8, mode_str, "full")) ParseMode.full else ParseMode.header_only;
 
     var parser = try BarDemofileParser.init(allocator, file_path, mode);
     defer parser.deinit();
@@ -889,7 +880,7 @@ pub fn main() !void {
     defer match.deinit();
 
     // Convert to JSON and print
-    const json = try match.toJson(allocator, .{});
+    const json = try match.toJson(allocator);
     defer allocator.free(json);
 
     // Total time taken
@@ -907,14 +898,14 @@ var g_output_buffer: []u8 = undefined;
 var g_initialized: bool = false;
 
 // Initialize the allocator (call this once)
-export fn wasm_init() void {
+export fn wasmInit() void {
     g_gpa = std.heap.GeneralPurposeAllocator(.{}){};
     g_allocator = g_gpa.allocator();
     g_initialized = true;
 }
 
 // Clean up resources (call this when done)
-export fn wasm_cleanup() void {
+export fn wasmCleanup() void {
     if (g_initialized) {
         if (g_output_buffer.len > 0) {
             g_allocator.free(g_output_buffer);
@@ -926,31 +917,31 @@ export fn wasm_cleanup() void {
 }
 
 // Free the current output buffer
-export fn wasm_free_output() void {
+export fn wasmFreeOutput() void {
     if (g_initialized and g_output_buffer.len > 0) {
         g_allocator.free(g_output_buffer);
         g_output_buffer = &[_]u8{};
     }
 }
 
-export fn parse_demo_file(file_path_ptr: [*]const u8, file_path_len: u32, mode: u8) usize {
+export fn parseDemoFile(file_path_ptr: [*]const u8, file_path_len: u32, mode: u8) usize {
     if (!g_initialized) {
-        wasm_init();
+        wasmInit();
     }
 
     // Free any existing output buffer
-    wasm_free_output();
+    wasmFreeOutput();
 
     // Convert C string to Zig slice
     const file_path = file_path_ptr[0..file_path_len];
 
     // Convert mode number to ParseMode
     const parse_mode = switch (mode) {
-        0 => ParseMode.HEADER_ONLY,
-        1 => ParseMode.METADATA_ONLY,
-        2 => ParseMode.ESSENTIAL_ONLY,
-        3 => ParseMode.FULL,
-        else => ParseMode.METADATA_ONLY,
+        0 => ParseMode.header_only,
+        1 => ParseMode.metadata_only,
+        2 => ParseMode.essential_only,
+        3 => ParseMode.full,
+        else => ParseMode.metadata_only,
     };
 
     // Parse the demo file

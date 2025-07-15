@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 const print = std.debug.print;
 
 // Pre-allocated string constants to avoid repeated allocations
-const JSON_CONSTANTS = struct {
+const JsonConstants = struct {
     const NULL_STR = "null";
     const EMPTY_OBJECT = "{}";
     const EMPTY_ARRAY = "[]";
@@ -50,7 +50,7 @@ const OptimizedJsonWriter = struct {
         if (value) |v| {
             try self.writeString(v);
         } else {
-            try self.buffer.appendSlice(JSON_CONSTANTS.NULL_STR);
+            try self.buffer.appendSlice(JsonConstants.NULL_STR);
         }
     }
 
@@ -64,7 +64,7 @@ const OptimizedJsonWriter = struct {
         if (value) |v| {
             try std.fmt.format(self.writer(), "{d}", .{v});
         } else {
-            try self.buffer.appendSlice(JSON_CONSTANTS.NULL_STR);
+            try self.buffer.appendSlice(JsonConstants.NULL_STR);
         }
     }
 
@@ -78,7 +78,7 @@ const OptimizedJsonWriter = struct {
             }
             try self.buffer.append(']');
         } else {
-            try self.buffer.appendSlice(JSON_CONSTANTS.NULL_STR);
+            try self.buffer.appendSlice(JsonConstants.NULL_STR);
         }
     }
 
@@ -165,7 +165,7 @@ const Player = struct {
         if (self.skilluncertainty) |su| {
             try std.fmt.format(writer.writer(), "{d:.6}", .{su});
         } else {
-            try writer.buffer.appendSlice(JSON_CONSTANTS.NULL_STR);
+            try writer.buffer.appendSlice(JsonConstants.NULL_STR);
         }
         try writer.writeObjectEnd();
     }
@@ -216,28 +216,28 @@ const AllyTeam = struct {
         if (self.startrectleft) |v| {
             try std.fmt.format(writer.writer(), "{d:.6}", .{v});
         } else {
-            try writer.buffer.appendSlice(JSON_CONSTANTS.NULL_STR);
+            try writer.buffer.appendSlice(JsonConstants.NULL_STR);
         }
         try writer.writeSeparator();
         try writer.writeFieldName("startrectright");
         if (self.startrectright) |v| {
             try std.fmt.format(writer.writer(), "{d:.6}", .{v});
         } else {
-            try writer.buffer.appendSlice(JSON_CONSTANTS.NULL_STR);
+            try writer.buffer.appendSlice(JsonConstants.NULL_STR);
         }
         try writer.writeSeparator();
         try writer.writeFieldName("startrectbottom");
         if (self.startrectbottom) |v| {
             try std.fmt.format(writer.writer(), "{d:.6}", .{v});
         } else {
-            try writer.buffer.appendSlice(JSON_CONSTANTS.NULL_STR);
+            try writer.buffer.appendSlice(JsonConstants.NULL_STR);
         }
         try writer.writeSeparator();
         try writer.writeFieldName("startrecttop");
         if (self.startrecttop) |v| {
             try std.fmt.format(writer.writer(), "{d:.6}", .{v});
         } else {
-            try writer.buffer.appendSlice(JSON_CONSTANTS.NULL_STR);
+            try writer.buffer.appendSlice(JsonConstants.NULL_STR);
         }
         try writer.writeSeparator();
         try writer.writeOptionalNumberField("numallies", self.numallies);
@@ -393,7 +393,7 @@ pub const GameConfig = struct {
             }
             try writer.writeObjectEnd();
         } else {
-            try writer.buffer.appendSlice(JSON_CONSTANTS.EMPTY_OBJECT);
+            try writer.buffer.appendSlice(JsonConstants.EMPTY_OBJECT);
         }
     }
 
