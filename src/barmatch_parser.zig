@@ -394,20 +394,21 @@ pub const BarDemofileParser = struct {
     allocator: Allocator,
 
     pub fn init(allocator: Allocator, file_path: []const u8, mode: ParseMode) !BarDemofileParser {
-        // Only read the first MB
-        const file = try std.fs.cwd().openFile(file_path, .{});
-        defer file.close();
 
-        var file_data: []u8 = undefined;
-        // TODO could read the header, check magic number, and adjust buffer relative game.header.script_size
-        if (mode == .header_only or mode == .metadata_only) {
-            file_data = try allocator.alloc(u8, 1024 * 512);
-        } else {
-            file_data = try allocator.alloc(u8, 1024 * 1024 * 50); // 50MB max
-        }
-        _ = try file.read(file_data);
+        // This does not work in WASM for some reason...
+        // const file = try std.fs.cwd().openFile(file_path, .{});
+        // defer file.close();
+        // var file_data: []u8 = undefined;
+        // // // TODO could read the header, check magic number, and adjust buffer relative game.header.script_size
+        // if (mode == .header_only or mode == .metadata_only) {
+        //     file_data = try allocator.alignedAlloc(u8, null, 1024 * 512);
+        // } else {
+        //     file_data = try allocator.alignedAlloc(u8, null, 1024 * 1024 * 50); // 50MB max
+        // }
+        // _ = try file.read(file_data);
 
-        // const file_data = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024 * 50); // 50MB max
+        const file_data = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024 * 50); // 50MB max
+
         var fixed_buffer_stream = std.io.fixedBufferStream(file_data);
         const gzip_stream = std.compress.gzip.decompressor(fixed_buffer_stream.reader());
 
