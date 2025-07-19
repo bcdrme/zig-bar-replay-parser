@@ -243,9 +243,9 @@ pub const BarMatch = struct {
             .game_config = gameconfig_parser.GameConfig.init(allocator),
             .chat_messages = ArrayList(ChatMessage).init(allocator),
             .statistics = Statistics{
-                .winning_ally_team_ids = undefined,
-                .player_stats = undefined,
-                .team_stats = undefined,
+                .winning_ally_team_ids = &[_]u8{},
+                .player_stats = &[_]PlayerStats{},
+                .team_stats = &[_]TeamStats{},
             },
             .allocator = allocator,
         };
@@ -299,24 +299,20 @@ pub const BarMatch = struct {
         try writer.writeAll("\"chat_messages\":[");
         for (self.chat_messages.items, 0..) |msg, i| {
             if (i > 0) try writer.writeByte(',');
-
-            // Escape message once and reuse
             const escaped_message = try escapeJsonString(allocator, msg.message);
             defer allocator.free(escaped_message);
-
             try writer.print("{{\"from_id\":{d},\"to_id\":{d},\"message\":\"{s}\",\"game_timestamp\":{d}}}", .{ msg.from_id, msg.to_id, escaped_message, msg.game_timestamp });
         }
         try writer.writeAll("],");
 
         // Statistics section - more efficient formatting
         try writer.writeAll("\"statistics\":{");
-
-        // Winning ally teams
         try writer.writeAll("\"winning_ally_team_ids\":[");
         for (self.statistics.winning_ally_team_ids, 0..) |team_id, i| {
             if (i > 0) try writer.writeByte(',');
             try writer.print("{d}", .{team_id});
         }
+
         try writer.writeAll("],");
 
         // Player stats - batch processing
@@ -325,6 +321,7 @@ pub const BarMatch = struct {
             if (i > 0) try writer.writeByte(',');
             try writer.print("{{\"player_id\":{d},\"mouse_pixels\":{d},\"mouse_clicks\":{d},\"key_presses\":{d}}}", .{ i, stat.mouse_pixels, stat.mouse_clicks, stat.key_presses });
         }
+
         try writer.writeAll("],");
 
         // Team stats - most complex section, optimize heavily
@@ -332,13 +329,13 @@ pub const BarMatch = struct {
         for (self.statistics.team_stats, 0..) |team_stat, i| {
             if (i > 0) try writer.writeByte(',');
             try writer.print("{{\"team_id\":{d},\"stat_count\":{d},\"entries\":[", .{ team_stat.team_id, team_stat.stat_count });
-
             for (team_stat.entries, 0..) |entry, j| {
                 if (j > 0) try writer.writeByte(',');
                 try writer.print("{{\"team_id\":{d},\"frame\":{d},\"metal_used\":{d:.6},\"energy_used\":{d:.6},\"metal_produced\":{d:.6},\"energy_produced\":{d:.6},\"metal_excess\":{d:.6},\"energy_excess\":{d:.6},\"metal_received\":{d:.6},\"energy_received\":{d:.6},\"metal_send\":{d:.6},\"energy_send\":{d:.6},\"damage_dealt\":{d:.6},\"damage_received\":{d:.6},\"units_produced\":{d},\"units_died\":{d},\"units_received\":{d},\"units_sent\":{d},\"units_captured\":{d},\"units_out_captured\":{d},\"units_killed\":{d}}}", .{ entry.team_id, entry.frame, entry.metal_used, entry.energy_used, entry.metal_produced, entry.energy_produced, entry.metal_excess, entry.energy_excess, entry.metal_received, entry.energy_received, entry.metal_send, entry.energy_send, entry.damage_dealt, entry.damage_received, entry.units_produced, entry.units_died, entry.units_received, entry.units_sent, entry.units_captured, entry.units_out_captured, entry.units_killed });
             }
             try writer.writeAll("]}");
         }
+
         try writer.writeAll("]},");
 
         // Game config
