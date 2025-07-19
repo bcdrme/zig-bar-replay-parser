@@ -12,7 +12,7 @@ async function runWithNodeWASI() {
     stdout: process.stdout.fd,
   });
 
-  const wasm = await WebAssembly.compile(await readFile("../wasm.wasm"));
+  const wasm = await WebAssembly.compile(await readFile("wasm.wasm"));
   const memory = new WebAssembly.Memory({
     initial: 256,
     maximum: 2048,
@@ -82,17 +82,16 @@ async function runWithNodeWASI() {
 
       const json = JSON.parse(outputString);
       console.log(`✅ Game ID: ${json.header?.game_id}`);
-
-      instance.exports.freeOutput();
     } catch (error) {
       console.error("Error:", error);
     } finally {
-      instance.exports.free(fileDataPtr, fileBuffer.length);
+      // Reset allocator after each file to avoid fragmentation
+      instance.exports.cleanup();
+      instance.exports.init();
     }
   }
 
   console.timeEnd("Processing files");
-  instance.exports.cleanup();
 }
 
 runWithNodeWASI().catch(console.error);
