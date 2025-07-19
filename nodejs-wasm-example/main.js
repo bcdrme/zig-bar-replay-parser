@@ -1,4 +1,5 @@
-import { readFile } from "fs/promises";
+import { readFile, readdir } from "fs/promises";
+import { env } from "process";
 import { WASI } from "wasi";
 
 async function runWithNodeWASI() {
@@ -13,17 +14,28 @@ async function runWithNodeWASI() {
     stdout: process.stdout.fd,
   });
 
-  const importObject = { wasi_snapshot_preview1: wasi.wasiImport };
   const wasm = await WebAssembly.compile(await readFile("../wasm.wasm"));
+  // const memory = new WebAssembly.Memory({ initial: 65536, maximum: 65536 });
+  const importObject = {
+    wasi_snapshot_preview1: wasi.wasiImport,
+    // env: { memory },
+  };
   const instance = await WebAssembly.instantiate(wasm, importObject);
   wasi.start(instance);
 
-  // Performance test - ensuring we can reuse the instance
-  // and that the memory is correctly managed.
-  for (let i = 0; i < 1024; i++) {
+  const entries = await readdir("/home/benoit/temp", {
+    withFileTypes: true,
+  });
+
+  const files = entries.filter(
+    (dirent) => dirent.isFile() && dirent.name.endsWith(".sdfz")
+  );
+
+  console.log("Files to process:", files.length);
+  console.time("Processing files");
+  for (const file of files) {
     const memory = instance.exports.memory;
-    const filePath =
-      "2025-07-02_22-18-20-632_All That Simmers v1.1_2025.04.08.sdfz";
+    const filePath = file.name;
     const filePathPtr = new Uint8Array(memory.buffer, 0, filePath.length);
     filePathPtr.set(new TextEncoder().encode(filePath));
 
@@ -43,6 +55,7 @@ async function runWithNodeWASI() {
     const json = JSON.parse(outputString);
     console.log("Output JSON:", json.header.game_id);
   }
+  console.timeEnd("Processing files");
 }
 
 runWithNodeWASI();

@@ -21,8 +21,7 @@ export fn _start() void {
 // Initialize the allocator (call this once)
 export fn init() void {
     stdout.print("Allocator initialized\n", .{}) catch {};
-    g_gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    g_allocator = g_gpa.allocator();
+    g_allocator = std.heap.wasm_allocator;
     g_initialized = true;
 }
 
@@ -55,38 +54,78 @@ export fn getOutput() ?[*]const u8 {
     return null;
 }
 
-export fn parseDemoFile(file_path_ptr: [*]u8, file_path_len: u32, mode: u8) usize {
-    const file_path = file_path_ptr[0..file_path_len];
-    const parse_mode = switch (mode) {
+export fn alloc(len: usize) usize {
+    if (!g_initialized) {
+        stderr.print("Allocator not initialized\n", .{}) catch {};
+        return 0;
+    }
+    const slice = g_allocator.alloc(u8, len) catch |err| {
+        stderr.print("Allocation error: {}\n", .{err}) catch {};
+        return 0;
+    };
+    return @intFromPtr(slice.ptr);
+}
+
+export fn free(ptr: usize, len: usize) void {
+    if (ptr == 0) {
+        stderr.print("Attempted to free null pointer\n", .{}) catch {};
+        return;
+    }
+    if (!g_initialized) {
+        stderr.print("Allocator not initialized\n", .{}) catch {};
+        return;
+    }
+    const slice: []u8 = @as([*]u8, @ptrFromInt(ptr))[0..len];
+    g_allocator.free(slice);
+}
+
+export fn parseDemoFile(file_path_ptr: usize, file_path_len: usize, mode: u8) usize {
+    const file_path_slice: [*]u8 = @ptrFromInt(file_path_ptr);
+    const filePath = file_path_slice[0..file_path_len];
+
+    const parseMode = switch (mode) {
         0 => ParseMode.header_only,
         1 => ParseMode.metadata_only,
         2 => ParseMode.essential_only,
         3 => ParseMode.full,
         else => ParseMode.metadata_only,
     };
-    stdout.print("parseDemoFile() called with path: {s}, mode: {}\n", .{ file_path, parse_mode }) catch {};
+    stdout.print("parseDemoFile() called with path: {s}, mode: {}\n", .{ filePath, parseMode }) catch {};
 
     if (!g_initialized) {
         init();
     }
 
-    // Free any existing output buffer
-    freeOutput();
-
-    // // Parse the demo file
-    var parser = BarDemofileParser.init(g_allocator, file_path, parse_mode) catch |err| {
-        stderr.print("Error initializing parser: {}\n", .{err}) catch {};
+    // Check if the file exists
+    const fs = std.fs.cwd();
+    const file = fs.openFile(filePath, .{}) catch |err| {
+        stderr.print("Error opening file '{s}': {}\n", .{ filePath, err }) catch {};
         return 0;
     };
-    defer parser.deinit();
-    stdout.print("Parser initialized successfully, file_data={} bytes\n", .{parser.file_data.len}) catch {};
-    // stdout.print("File data: {s}\n", .{parser.file_data}) catch {};
+    defer file.close();
+    stdout.print("File '{s}' opened successfully\n", .{filePath}) catch {};
 
+    // Free any existing output buffer
+    // freeOutput();
+
+    const maxFileSize: usize = 1024 * 1024 * 100; // 100 MB
+    const fileData = file.readToEndAlloc(g_allocator, maxFileSize) catch |err| {
+        stderr.print("Error reading file '{s}': {}\n", .{ filePath, err }) catch {};
+        return 0;
+    };
+    defer g_allocator.free(fileData);
+
+    var fixedBufferStream = std.io.fixedBufferStream(fileData);
+    var gzipDecompressor = std.compress.gzip.decompressor(fixedBufferStream.reader());
+    const reader = gzipDecompressor.reader();
+
+    // // Parse the demo file
+    var parser = BarDemofileParser(@TypeOf(reader)).init(g_allocator, parseMode, reader);
+    stdout.print("Parser initialized successfully\n", .{}) catch {};
     var match = parser.parse() catch |err| {
         stderr.print("Error parsing demo file: {}\n", .{err}) catch {};
         return 0;
     };
-    defer match.deinit();
     stdout.print("Demo file parsed successfully, game_id={x}\n", .{match.header.game_id}) catch {};
 
     g_output_buffer = match.toJson(g_allocator) catch |err| {
