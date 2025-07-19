@@ -386,466 +386,446 @@ pub const ParseMode = enum {
     full, // Parse everything (slowest)
 };
 
-pub const BarDemofileParser = struct {
-    file_data: []u8,
-    fixed_buffer_stream: std.io.FixedBufferStream([]u8),
-    mode: ParseMode,
-    gzip_stream: std.compress.gzip.Decompressor(std.io.FixedBufferStream([]u8).Reader),
-    allocator: Allocator,
+pub fn BarDemofileParser(comptime ReaderType: type) type {
+    return struct {
+        const Self = @This();
+        reader: ReaderType,
+        mode: ParseMode,
+        match: BarMatch,
+        allocator: Allocator,
 
-    pub fn init(allocator: Allocator, file_path: []const u8, mode: ParseMode) !BarDemofileParser {
+        pub fn init(allocator: Allocator, mode: ParseMode, reader: ReaderType) Self {
+            var barMatch = BarMatch.init(allocator);
+            errdefer barMatch.deinit();
 
-        // This does not work in WASM for some reason...
-        // const file = try std.fs.cwd().openFile(file_path, .{});
-        // defer file.close();
-        // var file_data: []u8 = undefined;
-        // // // TODO could read the header, check magic number, and adjust buffer relative game.header.script_size
-        // if (mode == .header_only or mode == .metadata_only) {
-        //     file_data = try allocator.alignedAlloc(u8, null, 1024 * 512);
-        // } else {
-        //     file_data = try allocator.alignedAlloc(u8, null, 1024 * 1024 * 50); // 50MB max
-        // }
-        // _ = try file.read(file_data);
-
-        const file_data = try std.fs.cwd().readFileAlloc(allocator, file_path, 1024 * 1024 * 50); // 50MB max
-
-        var fixed_buffer_stream = std.io.fixedBufferStream(file_data);
-        const gzip_stream = std.compress.gzip.decompressor(fixed_buffer_stream.reader());
-
-        return BarDemofileParser{
-            .file_data = file_data,
-            .fixed_buffer_stream = fixed_buffer_stream,
-            .mode = mode,
-            .gzip_stream = gzip_stream,
-            .allocator = allocator,
-        };
-    }
-
-    pub fn deinit(self: *BarDemofileParser) void {
-        self.allocator.free(self.file_data); // Free it in deinit
-    }
-
-    // Packet types (NETMSG from NetMessageTypes.h)
-    // https://github.com/beyond-all-reason/RecoilEngine/blob/master/rts/Net/Protocol/NetMessageTypes.h
-    const NetMsg = struct {
-        const KEYFRAME: u8 = 1;
-        const NEWFRAME: u8 = 2;
-        const QUIT: u8 = 3;
-        const STARTPLAYING: u8 = 4;
-        const SETPLAYERNUM: u8 = 5;
-        const PLAYERNAME: u8 = 6;
-        const CHAT: u8 = 7;
-        const RANDSEED: u8 = 8;
-        const GAMEID: u8 = 9;
-        const PATH_CHECKSUM: u8 = 10;
-        const COMMAND: u8 = 11;
-        const SELECT: u8 = 12;
-        const PAUSE: u8 = 13;
-        const AICOMMAND: u8 = 14;
-        const AICOMMANDS: u8 = 15;
-        const AISHARE: u8 = 16;
-        const USER_SPEED: u8 = 19;
-        const INTERNAL_SPEED: u8 = 20;
-        const CPU_USAGE: u8 = 21;
-        const DIRECT_CONTROL: u8 = 22;
-        const DC_UPDATE: u8 = 23;
-        const SHARE: u8 = 26;
-        const SETSHARE: u8 = 27;
-        const PLAYERSTAT: u8 = 29;
-        const GAMEOVER: u8 = 30;
-        const MAPDRAW_OLD: u8 = 31;
-        const MAPDRAW: u8 = 32;
-        const SYNCRESPONSE: u8 = 33;
-        const SYSTEMMSG: u8 = 35;
-        const STARTPOS: u8 = 36;
-        const PLAYERINFO: u8 = 38;
-        const PLAYERLEFT: u8 = 39;
-        const SD_CHKREQUEST: u8 = 41;
-        const SD_CHKRESPONSE: u8 = 42;
-        const SD_BLKREQUEST: u8 = 43;
-        const SD_BLKRESPONSE: u8 = 44;
-        const SD_RESET: u8 = 45;
-        const GAMESTATE_DUMP: u8 = 46;
-        const LOGMSG: u8 = 49;
-        const LUAMSG: u8 = 50;
-        const TEAM: u8 = 51;
-        const GAMEDATA: u8 = 52;
-        const ALLIANCE: u8 = 53;
-        const CCOMMAND: u8 = 54;
-        const TEAMSTAT: u8 = 60;
-        const CLIENTDATA: u8 = 61;
-        const ATTEMPTCONNECT: u8 = 65;
-        const REJECTCONNECT: u8 = 66;
-        const AI_CREATED: u8 = 70;
-        const AI_STATE_CHANGED: u8 = 71;
-        const REQUEST_TEAMSTAT: u8 = 72;
-        const CREATE_NEWPLAYER: u8 = 75;
-        const AICOMMAND_TRACKED: u8 = 76;
-        const GAME_FRAME_PROGRESS: u8 = 77;
-        const PING: u8 = 78;
-    };
-
-    fn netmsgToString(netmsg: u8) []const u8 {
-        return switch (netmsg) {
-            NetMsg.KEYFRAME => "NETMSG_KEYFRAME",
-            NetMsg.NEWFRAME => "NETMSG_NEWFRAME",
-            NetMsg.QUIT => "NETMSG_QUIT",
-            NetMsg.STARTPLAYING => "NETMSG_STARTPLAYING",
-            NetMsg.SETPLAYERNUM => "NETMSG_SETPLAYERNUM",
-            NetMsg.PLAYERNAME => "NETMSG_PLAYERNAME",
-            NetMsg.CHAT => "NETMSG_CHAT",
-            NetMsg.RANDSEED => "NETMSG_RANDSEED",
-            NetMsg.GAMEID => "NETMSG_GAMEID",
-            NetMsg.PATH_CHECKSUM => "NETMSG_PATH_CHECKSUM",
-            NetMsg.COMMAND => "NETMSG_COMMAND",
-            NetMsg.SELECT => "NETMSG_SELECT",
-            NetMsg.PAUSE => "NETMSG_PAUSE",
-            NetMsg.AICOMMAND => "NETMSG_AICOMMAND",
-            NetMsg.AICOMMANDS => "NETMSG_AICOMMANDS",
-            NetMsg.AISHARE => "NETMSG_AISHARE",
-            NetMsg.USER_SPEED => "NETMSG_USER_SPEED",
-            NetMsg.INTERNAL_SPEED => "NETMSG_INTERNAL_SPEED",
-            NetMsg.CPU_USAGE => "NETMSG_CPU_USAGE",
-            NetMsg.DIRECT_CONTROL => "NETMSG_DIRECT_CONTROL",
-            NetMsg.DC_UPDATE => "NETMSG_DC_UPDATE",
-            NetMsg.SHARE => "NETMSG_SHARE",
-            NetMsg.SETSHARE => "NETMSG_SETSHARE",
-            NetMsg.PLAYERSTAT => "NETMSG_PLAYERSTAT",
-            NetMsg.GAMEOVER => "NETMSG_GAMEOVER",
-            NetMsg.MAPDRAW_OLD => "NETMSG_MAPDRAW_OLD",
-            NetMsg.MAPDRAW => "NETMSG_MAPDRAW",
-            NetMsg.SYNCRESPONSE => "NETMSG_SYNCRESPONSE",
-            NetMsg.SYSTEMMSG => "NETMSG_SYSTEMMSG",
-            NetMsg.STARTPOS => "NETMSG_STARTPOS",
-            NetMsg.PLAYERINFO => "NETMSG_PLAYERINFO",
-            NetMsg.PLAYERLEFT => "NETMSG_PLAYERLEFT",
-            NetMsg.SD_CHKREQUEST => "NETMSG_SD_CHKREQUEST",
-            NetMsg.SD_CHKRESPONSE => "NETMSG_SD_CHKRESPONSE",
-            NetMsg.SD_BLKREQUEST => "NETMSG_SD_BLKREQUEST",
-            NetMsg.SD_BLKRESPONSE => "NETMSG_SD_BLKRESPONSE",
-            NetMsg.SD_RESET => "NETMSG_SD_RESET",
-            NetMsg.GAMESTATE_DUMP => "NETMSG_GAMESTATE_DUMP",
-            NetMsg.LOGMSG => "NETMSG_LOGMSG",
-            NetMsg.LUAMSG => "NETMSG_LUAMSG",
-            NetMsg.TEAM => "NETMSG_TEAM",
-            NetMsg.GAMEDATA => "NETMSG_GAMEDATA",
-            NetMsg.ALLIANCE => "NETMSG_ALLIANCE",
-            NetMsg.CCOMMAND => "NETMSG_CCOMMAND",
-            NetMsg.TEAMSTAT => "NETMSG_TEAMSTAT",
-            NetMsg.CLIENTDATA => "NETMSG_CLIENTDATA",
-            NetMsg.ATTEMPTCONNECT => "NETMSG_ATTEMPTCONNECT",
-            NetMsg.REJECTCONNECT => "NETMSG_REJECTCONNECT",
-            NetMsg.AI_CREATED => "NETMSG_AI_CREATED",
-            NetMsg.AI_STATE_CHANGED => "NETMSG_AI_STATE_CHANGED",
-            NetMsg.REQUEST_TEAMSTAT => "NETMSG_REQUEST_TEAMSTAT",
-            NetMsg.CREATE_NEWPLAYER => "NETMSG_CREATE_NEWPLAYER",
-            NetMsg.AICOMMAND_TRACKED => "NETMSG_AICOMMAND_TRACKED",
-            NetMsg.GAME_FRAME_PROGRESS => "NETMSG_GAME_FRAME_PROGRESS",
-            NetMsg.PING => "NETMSG_PING",
-            else => "UNKNOWN",
-        };
-    }
-
-    pub fn parse(self: *BarDemofileParser) !BarMatch {
-        var match = BarMatch.init(self.allocator);
-        errdefer match.deinit();
-
-        // Read header
-        match.header = try self.gzip_stream.reader().readStructEndian(Header, .little);
-
-        // Validate header
-        if (!std.mem.eql(u8, &match.header.magic, "spring demofile\x00")) {
-            return ParseError.InvalidHeader;
-        }
-
-        // Calculate offsets (these are calculated based on the header information)
-        match.packet_offset = @sizeOf(Header) + match.header.script_size;
-        match.stat_offset = match.packet_offset + match.header.demo_stream_size;
-
-        // Early exit for header-only mode
-        if (self.mode == .header_only) {
-            match.game_config = gameconfig_parser.GameConfig.init(self.allocator);
-            return match;
-        }
-
-        // Read script if present
-        if (match.header.script_size > 0) {
-            const script = self.allocator.alloc(u8, @as(usize, @intCast(match.header.script_size))) catch |err| {
-                return err; // Handle allocation error
+            return Self{
+                .reader = reader,
+                .mode = mode,
+                .allocator = allocator,
+                .match = BarMatch.init(allocator),
             };
-            _ = try self.gzip_stream.reader().read(script);
-            defer self.allocator.free(script);
-            match.game_config = try gameconfig_parser.parseScript(self.allocator, script);
         }
 
-        if (self.mode == .metadata_only) {
-            return match; // Return early for metadata-only mode
-        }
-
-        // Parse packets or skip demo stream data
-        // if (mode == .essential_only or mode == .full) {
-        //     parsePacketsStreaming(reader, &match, mode) catch |err| {
-        //         print("Warning: packet parsing failed: {}\n", .{err});
-        //         print("[reader position={}] [packet count={}] [packet parsed={}]\n", .{ reader.reader_pos, match.packet_count, match.packet_parsed });
-        //         return match; // Return what we have so far
-        //     };
-        //     print("packets parsed [gameID={s}] [packet count={}] [packet parsed={}]\n", .{ match.header.game_id, match.packet_count, match.packet_parsed });
-        // } else {
-        try self.gzip_stream.reader().skipBytes(@as(u32, @intCast(match.header.demo_stream_size)), .{});
-        // }
-
-        // Parse statistics
-        self.parseStatisticsStreaming(&match) catch |err| {
-            print("Warning: statistics parsing failed: {}\n", .{err});
-            return match; // Return what we have so far
+        // Packet types (NETMSG from NetMessageTypes.h)
+        // https://github.com/beyond-all-reason/RecoilEngine/blob/master/rts/Net/Protocol/NetMessageTypes.h
+        const NetMsg = struct {
+            const KEYFRAME: u8 = 1;
+            const NEWFRAME: u8 = 2;
+            const QUIT: u8 = 3;
+            const STARTPLAYING: u8 = 4;
+            const SETPLAYERNUM: u8 = 5;
+            const PLAYERNAME: u8 = 6;
+            const CHAT: u8 = 7;
+            const RANDSEED: u8 = 8;
+            const GAMEID: u8 = 9;
+            const PATH_CHECKSUM: u8 = 10;
+            const COMMAND: u8 = 11;
+            const SELECT: u8 = 12;
+            const PAUSE: u8 = 13;
+            const AICOMMAND: u8 = 14;
+            const AICOMMANDS: u8 = 15;
+            const AISHARE: u8 = 16;
+            const USER_SPEED: u8 = 19;
+            const INTERNAL_SPEED: u8 = 20;
+            const CPU_USAGE: u8 = 21;
+            const DIRECT_CONTROL: u8 = 22;
+            const DC_UPDATE: u8 = 23;
+            const SHARE: u8 = 26;
+            const SETSHARE: u8 = 27;
+            const PLAYERSTAT: u8 = 29;
+            const GAMEOVER: u8 = 30;
+            const MAPDRAW_OLD: u8 = 31;
+            const MAPDRAW: u8 = 32;
+            const SYNCRESPONSE: u8 = 33;
+            const SYSTEMMSG: u8 = 35;
+            const STARTPOS: u8 = 36;
+            const PLAYERINFO: u8 = 38;
+            const PLAYERLEFT: u8 = 39;
+            const SD_CHKREQUEST: u8 = 41;
+            const SD_CHKRESPONSE: u8 = 42;
+            const SD_BLKREQUEST: u8 = 43;
+            const SD_BLKRESPONSE: u8 = 44;
+            const SD_RESET: u8 = 45;
+            const GAMESTATE_DUMP: u8 = 46;
+            const LOGMSG: u8 = 49;
+            const LUAMSG: u8 = 50;
+            const TEAM: u8 = 51;
+            const GAMEDATA: u8 = 52;
+            const ALLIANCE: u8 = 53;
+            const CCOMMAND: u8 = 54;
+            const TEAMSTAT: u8 = 60;
+            const CLIENTDATA: u8 = 61;
+            const ATTEMPTCONNECT: u8 = 65;
+            const REJECTCONNECT: u8 = 66;
+            const AI_CREATED: u8 = 70;
+            const AI_STATE_CHANGED: u8 = 71;
+            const REQUEST_TEAMSTAT: u8 = 72;
+            const CREATE_NEWPLAYER: u8 = 75;
+            const AICOMMAND_TRACKED: u8 = 76;
+            const GAME_FRAME_PROGRESS: u8 = 77;
+            const PING: u8 = 78;
         };
 
-        return match;
-    }
-
-    fn parsePacketsStreaming(self: *BarDemofileParser, match: *BarMatch, mode: ParseMode) !void {
-        var packet_bytes_read: usize = 0;
-        while (true) {
-            // Check if we are finished reading the demo stream
-            if (self.gzip_stream.reader().reader_pos >= match.stat_offset) {
-                print("Reached end of demo stream [packet bytes read={}]\n", .{packet_bytes_read});
-                break;
-            }
-
-            // Read game time as i32
-            const game_time = try self.gzip_stream.reader().readI32LE();
-
-            // Read packet length as u32
-            const length = try self.gzip_stream.reader().readU32LE();
-
-            // Read packet type
-            const packet_type = try self.gzip_stream.reader().readU8();
-
-            match.packet_count += 1;
-            packet_bytes_read += length;
-
-            if (match.packet_count >= 895936) {
-                print("packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
-            }
-
-            // If length is 0 or just the packet type byte, skip
-            if (length <= 1) {
-                continue;
-            }
-
-            // Only process essential packets in essential_only mode
-            const should_process = switch (mode) {
-                .essential_only =>
-                // packet_type == NetMsg.CHAT or
-                packet_type == NetMsg.GAMEOVER or
-                    packet_type == NetMsg.QUIT,
-                .full => true,
-                else => false,
+        fn netmsgToString(netmsg: u8) []const u8 {
+            return switch (netmsg) {
+                NetMsg.KEYFRAME => "NETMSG_KEYFRAME",
+                NetMsg.NEWFRAME => "NETMSG_NEWFRAME",
+                NetMsg.QUIT => "NETMSG_QUIT",
+                NetMsg.STARTPLAYING => "NETMSG_STARTPLAYING",
+                NetMsg.SETPLAYERNUM => "NETMSG_SETPLAYERNUM",
+                NetMsg.PLAYERNAME => "NETMSG_PLAYERNAME",
+                NetMsg.CHAT => "NETMSG_CHAT",
+                NetMsg.RANDSEED => "NETMSG_RANDSEED",
+                NetMsg.GAMEID => "NETMSG_GAMEID",
+                NetMsg.PATH_CHECKSUM => "NETMSG_PATH_CHECKSUM",
+                NetMsg.COMMAND => "NETMSG_COMMAND",
+                NetMsg.SELECT => "NETMSG_SELECT",
+                NetMsg.PAUSE => "NETMSG_PAUSE",
+                NetMsg.AICOMMAND => "NETMSG_AICOMMAND",
+                NetMsg.AICOMMANDS => "NETMSG_AICOMMANDS",
+                NetMsg.AISHARE => "NETMSG_AISHARE",
+                NetMsg.USER_SPEED => "NETMSG_USER_SPEED",
+                NetMsg.INTERNAL_SPEED => "NETMSG_INTERNAL_SPEED",
+                NetMsg.CPU_USAGE => "NETMSG_CPU_USAGE",
+                NetMsg.DIRECT_CONTROL => "NETMSG_DIRECT_CONTROL",
+                NetMsg.DC_UPDATE => "NETMSG_DC_UPDATE",
+                NetMsg.SHARE => "NETMSG_SHARE",
+                NetMsg.SETSHARE => "NETMSG_SETSHARE",
+                NetMsg.PLAYERSTAT => "NETMSG_PLAYERSTAT",
+                NetMsg.GAMEOVER => "NETMSG_GAMEOVER",
+                NetMsg.MAPDRAW_OLD => "NETMSG_MAPDRAW_OLD",
+                NetMsg.MAPDRAW => "NETMSG_MAPDRAW",
+                NetMsg.SYNCRESPONSE => "NETMSG_SYNCRESPONSE",
+                NetMsg.SYSTEMMSG => "NETMSG_SYSTEMMSG",
+                NetMsg.STARTPOS => "NETMSG_STARTPOS",
+                NetMsg.PLAYERINFO => "NETMSG_PLAYERINFO",
+                NetMsg.PLAYERLEFT => "NETMSG_PLAYERLEFT",
+                NetMsg.SD_CHKREQUEST => "NETMSG_SD_CHKREQUEST",
+                NetMsg.SD_CHKRESPONSE => "NETMSG_SD_CHKRESPONSE",
+                NetMsg.SD_BLKREQUEST => "NETMSG_SD_BLKREQUEST",
+                NetMsg.SD_BLKRESPONSE => "NETMSG_SD_BLKRESPONSE",
+                NetMsg.SD_RESET => "NETMSG_SD_RESET",
+                NetMsg.GAMESTATE_DUMP => "NETMSG_GAMESTATE_DUMP",
+                NetMsg.LOGMSG => "NETMSG_LOGMSG",
+                NetMsg.LUAMSG => "NETMSG_LUAMSG",
+                NetMsg.TEAM => "NETMSG_TEAM",
+                NetMsg.GAMEDATA => "NETMSG_GAMEDATA",
+                NetMsg.ALLIANCE => "NETMSG_ALLIANCE",
+                NetMsg.CCOMMAND => "NETMSG_CCOMMAND",
+                NetMsg.TEAMSTAT => "NETMSG_TEAMSTAT",
+                NetMsg.CLIENTDATA => "NETMSG_CLIENTDATA",
+                NetMsg.ATTEMPTCONNECT => "NETMSG_ATTEMPTCONNECT",
+                NetMsg.REJECTCONNECT => "NETMSG_REJECTCONNECT",
+                NetMsg.AI_CREATED => "NETMSG_AI_CREATED",
+                NetMsg.AI_STATE_CHANGED => "NETMSG_AI_STATE_CHANGED",
+                NetMsg.REQUEST_TEAMSTAT => "NETMSG_REQUEST_TEAMSTAT",
+                NetMsg.CREATE_NEWPLAYER => "NETMSG_CREATE_NEWPLAYER",
+                NetMsg.AICOMMAND_TRACKED => "NETMSG_AICOMMAND_TRACKED",
+                NetMsg.GAME_FRAME_PROGRESS => "NETMSG_GAME_FRAME_PROGRESS",
+                NetMsg.PING => "NETMSG_PING",
+                else => "UNKNOWN",
             };
+        }
 
-            if (should_process) {
-                // print("packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
-                self.processPacketStreaming(game_time, length, packet_type) catch |err| {
-                    print("Error with packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
-                    print("Error processing packet: {}\n", .{err});
-                    return err; // Stop on error
+        pub fn parse(self: *Self) !BarMatch {
+
+            // Read header
+            self.match.header = try self.reader.readStructEndian(Header, .little);
+
+            // Validate header
+            if (!std.mem.eql(u8, &self.match.header.magic, "spring demofile\x00")) {
+                return ParseError.InvalidHeader;
+            }
+
+            // Calculate offsets (these are calculated based on the header information)
+            self.match.packet_offset = @sizeOf(Header) + self.match.header.script_size;
+            self.match.stat_offset = self.match.packet_offset + self.match.header.demo_stream_size;
+
+            // Early exit for header-only mode
+            if (self.mode == .header_only) {
+                self.match.game_config = gameconfig_parser.GameConfig.init(self.allocator);
+                return self.match;
+            }
+
+            // Read script if present
+            if (self.match.header.script_size > 0) {
+                const script = self.allocator.alloc(u8, @as(usize, @intCast(self.match.header.script_size))) catch |err| {
+                    return err; // Handle allocation error
                 };
-                match.packet_parsed += 1;
-            } else {
-                // Skip packet data if not processing (length - 1 because we already read the packet type)
-                if (length > 1) {
-                    try self.gzip_stream.reader().skipBytes(length - 1);
-                }
+                _ = try self.reader.read(script);
+                defer self.allocator.free(script);
+                self.match.game_config = try gameconfig_parser.parseScript(self.allocator, script);
             }
 
-            // if (packet_type == NetMsg.QUIT) {
-            //     print("found quit packet, breaking [packet count={}]\n", .{match.packet_count});
-            //     break;
+            if (self.mode == .metadata_only) {
+                return self.match; // Return early for metadata-only mode
+            }
+
+            // Parse packets or skip demo stream datareader
+            // if (mode == .essential_only or mode == .full) {
+            //     parsePacketsStreaming(reader, &self.match, mode) catch |err| {
+            //         print("Warning: packet parsing failed: {}\n", .{err});
+            //         print("[reader position={}] [packet count={}] [packet parsed={}]\n", .{ reader.reader_pos, self.match.packet_count, self.match.packet_parsed });
+            //         return self.match; // Return what we have so far
+            //     };
+            //     print("packets parsed [gameID={s}] [packet count={}] [packet parsed={}]\n", .{ self.match.header.game_id, self.match.packet_count, self.match.packet_parsed });
+            // } else {
+            try self.reader.skipBytes(@as(u32, @intCast(self.match.header.demo_stream_size)), .{});
+            // }
+
+            // Parse statistics
+            self.parseStatisticsStreaming() catch |err| {
+                print("Warning: statistics parsing failed: {}\n", .{err});
+                return self.match; // Return what we have so far
+            };
+
+            return self.match;
+        }
+
+        fn parsePacketsStreaming(self: *Self, match: *BarMatch, mode: ParseMode) !void {
+            var packet_bytes_read: usize = 0;
+            while (true) {
+                // Check if we are finished reading the demo stream
+                if (self.gzip_stream.reader().reader_pos >= match.stat_offset) {
+                    print("Reached end of demo stream [packet bytes read={}]\n", .{packet_bytes_read});
+                    break;
+                }
+
+                // Read game time as i32
+                const game_time = try self.gzip_stream.reader().readI32LE();
+
+                // Read packet length as u32
+                const length = try self.gzip_stream.reader().readU32LE();
+
+                // Read packet type
+                const packet_type = try self.gzip_stream.reader().readU8();
+
+                match.packet_count += 1;
+                packet_bytes_read += length;
+
+                if (match.packet_count >= 895936) {
+                    print("packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
+                }
+
+                // If length is 0 or just the packet type byte, skip
+                if (length <= 1) {
+                    continue;
+                }
+
+                // Only process essential packets in essential_only mode
+                const should_process = switch (mode) {
+                    .essential_only =>
+                    // packet_type == NetMsg.CHAT or
+                    packet_type == NetMsg.GAMEOVER or
+                        packet_type == NetMsg.QUIT,
+                    .full => true,
+                    else => false,
+                };
+
+                if (should_process) {
+                    // print("packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
+                    self.processPacketStreaming(game_time, length, packet_type) catch |err| {
+                        print("Error with packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
+                        print("Error processing packet: {}\n", .{err});
+                        return err; // Stop on error
+                    };
+                    match.packet_parsed += 1;
+                } else {
+                    // Skip packet data if not processing (length - 1 because we already read the packet type)
+                    if (length > 1) {
+                        try self.gzip_stream.reader().skipBytes(length - 1);
+                    }
+                }
+
+                // if (packet_type == NetMsg.QUIT) {
+                //     print("found quit packet, breaking [packet count={}]\n", .{match.packet_count});
+                //     break;
+                // }
+            }
+        }
+
+        fn parseStatisticsStreaming(self: *Self) !void {
+            // Read winning ally teams - batch read
+            if (self.match.header.winning_ally_teams_size > 0) {
+                const winning_ally_team_ids = try self.allocator.alloc(u8, @intCast(self.match.header.winning_ally_teams_size));
+                _ = try self.reader.read(winning_ally_team_ids);
+                self.match.statistics.winning_ally_team_ids = winning_ally_team_ids;
+            }
+
+            // // Read player statistics - batch read the raw data
+            // if (match.header.player_count > 0) {
+            //     try match.statistics.player_stats.ensureTotalCapacity(@intCast(match.header.player_count));
+
+            //     for (0..@intCast(match.header.player_count)) |i| {
+            //         // Read all 5 i32 values at once into a buffer
+            //         var stats_data: [5]i32 = undefined;
+            //         try self.gzip_stream.reader().readMultipleI32LE(&stats_data);
+
+            //         const player_stat = PlayerStats{
+            //             .player_id = @intCast(i),
+            //             .command_count = stats_data[0],
+            //             .unit_commands = stats_data[1],
+            //             .mouse_pixels = stats_data[2],
+            //             .mouse_clicks = stats_data[3],
+            //             .key_presses = stats_data[4],
+            //         };
+            //         self.match.statistics.player_stats.appendAssumeCapacity(player_stat);
+            //     }
+            // }
+
+            // // Read team statistics - optimize for batch reading
+            // if (self.match.header.team_count > 0) {
+            //     try self.match.statistics.team_stats.ensureTotalCapacity(@intCast(self.match.header.team_count));
+
+            //     // First pass: read stat counts
+            //     const stat_counts = try self.allocator.alloc(i32, @intCast(self.match.header.team_count));
+            //     defer self.allocator.free(stat_counts);
+
+            //     try self.gzip_stream.reader().readMultipleI32LE(stat_counts);
+
+            //     // Initialize team stats with known capacities
+            //     for (0..@intCast(self.match.header.team_count)) |i| {
+            //         var team_stat = TeamStats.init(self.allocator);
+            //         team_stat.team_id = @intCast(i);
+            //         team_stat.stat_count = stat_counts[i];
+
+            //         // Add sanity check for stat count
+            //         if (stat_counts[i] < 0 or stat_counts[i] > 100000) {
+            //             print("Warning: Invalid stat count {} for team {}, skipping\n", .{ stat_counts[i], i });
+            //             self.match.statistics.team_stats.appendAssumeCapacity(team_stat);
+            //             continue;
+            //         }
+
+            //         try team_stat.entries.ensureTotalCapacity(@intCast(stat_counts[i]));
+            //         self.match.statistics.team_stats.appendAssumeCapacity(team_stat);
+            //     }
+
+            //     // Second pass: read actual frame statistics in batches
+            //     for (self.match.statistics.team_stats.items) |*team_stat| {
+            //         const entry_count = @as(usize, @intCast(team_stat.stat_count));
+
+            //         for (0..entry_count) |_| {
+            //             // Read all 20 values for this entry at once
+            //             var frame_data: [20]f32 = undefined;
+
+            //             // Read frame (i32) and convert to f32 for batch processing
+            //             const frame = try self.gzip_stream.reader().readI32LE();
+
+            //             // Read all float values at once
+            //             try self.gzip_stream.reader().readMultipleF32LE(frame_data[0..19]);
+
+            //             // Read integer values
+            //             var int_data: [7]i32 = undefined;
+            //             try self.gzip_stream.reader().readMultipleI32LE(&int_data);
+
+            //             const frame_stat = TeamStatsDataPoint{
+            //                 .team_id = team_stat.team_id,
+            //                 .frame = frame,
+            //                 .metal_used = frame_data[0],
+            //                 .energy_used = frame_data[1],
+            //                 .metal_produced = frame_data[2],
+            //                 .energy_produced = frame_data[3],
+            //                 .metal_excess = frame_data[4],
+            //                 .energy_excess = frame_data[5],
+            //                 .metal_received = frame_data[6],
+            //                 .energy_received = frame_data[7],
+            //                 .metal_send = frame_data[8],
+            //                 .energy_send = frame_data[9],
+            //                 .damage_dealt = frame_data[10],
+            //                 .damage_received = frame_data[11],
+            //                 .units_produced = int_data[0],
+            //                 .units_died = int_data[1],
+            //                 .units_received = int_data[2],
+            //                 .units_sent = int_data[3],
+            //                 .units_captured = int_data[4],
+            //                 .units_out_captured = int_data[5],
+            //                 .units_killed = int_data[6],
+            //             };
+            //             team_stat.entries.appendAssumeCapacity(frame_stat);
+            //         }
+            //     }
             // }
         }
-    }
 
-    fn parseStatisticsStreaming(self: *BarDemofileParser, match: *BarMatch) !void {
-        // Read winning ally teams - batch read
-        if (match.header.winning_ally_teams_size > 0) {
-            const winning_ally_team_ids = try self.allocator.alloc(u8, @intCast(match.header.winning_ally_teams_size));
-            _ = try self.gzip_stream.reader().read(winning_ally_team_ids);
-            match.statistics.winning_ally_team_ids = winning_ally_team_ids;
+        fn processPacketStreaming(self: *Self, game_time: i32, length: u32, packet_type: u8) !void {
+            // Calculate remaining bytes to read (subtract 1 for the packet type we already read)
+            const remaining_bytes = if (length > 1) length - 1 else 0;
+
+            switch (packet_type) {
+                NetMsg.CHAT => {
+                    // NETMSG_CHAT has format: uint8_t messageSize; uint8_t from, dest; std::string message;
+                    // The messageSize is redundant (same as packet length), so we ignore it
+                    if (remaining_bytes < 3) {
+                        try self.gzip_stream.reader().skipBytes(remaining_bytes);
+                        return;
+                    }
+                    try self.gzip_stream.reader().skipBytes(1); // Skip message size byte
+                    const from_id = try self.gzip_stream.reader().readU8();
+                    const to_id = try self.gzip_stream.reader().readU8();
+                    // The actual message length is remaining_bytes - 3 (for the 3 bytes we just read)
+                    const message_len = remaining_bytes - 3;
+                    const message = if (message_len > 0) blk: {
+                        const message_bytes = try self.gzip_stream.reader().readBytes(message_len);
+                        // Find null terminator
+                        var actual_len: usize = 0;
+                        for (message_bytes) |byte| {
+                            if (byte == 0) break;
+                            actual_len += 1;
+                        }
+                        // Create properly sized message
+                        const result = try self.allocator.alloc(u8, actual_len);
+                        @memcpy(result, message_bytes[0..actual_len]);
+                        self.allocator.free(message_bytes);
+                        break :blk result;
+                    } else try self.allocator.alloc(u8, 0);
+                    const msg = ChatMessage{
+                        .from_id = from_id,
+                        .to_id = to_id,
+                        .message = message,
+                        .game_timestamp = game_time,
+                    };
+                    try self.match.chat_messages.append(msg);
+                },
+
+                NetMsg.TEAM => {
+                    // NETMSG_TEAM: uint8_t playerNum; uint8_t action; uint8_t param1;
+                    if (remaining_bytes >= 3) {
+                        const player_num = try self.gzip_stream.reader().readU8();
+                        const action = try self.gzip_stream.reader().readU8();
+                        const param1 = try self.gzip_stream.reader().readU8();
+
+                        if (action == 2) { // 2 = resigned
+                            const death = TeamDeath{
+                                .team_id = player_num,
+                                .reason = action,
+                                .game_time = game_time,
+                            };
+                            try self.match.team_deaths.append(death);
+                        } else if (action == 4) { // 4 = TEAM_DIED, param1 = team that died
+                            const death = TeamDeath{
+                                .team_id = param1,
+                                .reason = action,
+                                .game_time = game_time,
+                            };
+                            try self.match.team_deaths.append(death);
+                        }
+
+                        // Skip any remaining bytes
+                        if (remaining_bytes > 3) {
+                            try self.gzip_stream.reader().skipBytes(remaining_bytes - 3);
+                        }
+                    } else {
+                        try self.gzip_stream.reader().skipBytes(remaining_bytes);
+                    }
+                },
+
+                else => {
+                    // Skip unknown packet types
+                    if (remaining_bytes > 0) {
+                        try self.gzip_stream.reader().skipBytes(remaining_bytes);
+                    }
+                },
+            }
         }
-
-        // // Read player statistics - batch read the raw data
-        // if (match.header.player_count > 0) {
-        //     try match.statistics.player_stats.ensureTotalCapacity(@intCast(match.header.player_count));
-
-        //     for (0..@intCast(match.header.player_count)) |i| {
-        //         // Read all 5 i32 values at once into a buffer
-        //         var stats_data: [5]i32 = undefined;
-        //         try self.gzip_stream.reader().readMultipleI32LE(&stats_data);
-
-        //         const player_stat = PlayerStats{
-        //             .player_id = @intCast(i),
-        //             .command_count = stats_data[0],
-        //             .unit_commands = stats_data[1],
-        //             .mouse_pixels = stats_data[2],
-        //             .mouse_clicks = stats_data[3],
-        //             .key_presses = stats_data[4],
-        //         };
-        //         self.match.statistics.player_stats.appendAssumeCapacity(player_stat);
-        //     }
-        // }
-
-        // // Read team statistics - optimize for batch reading
-        // if (self.match.header.team_count > 0) {
-        //     try self.match.statistics.team_stats.ensureTotalCapacity(@intCast(self.match.header.team_count));
-
-        //     // First pass: read stat counts
-        //     const stat_counts = try self.allocator.alloc(i32, @intCast(self.match.header.team_count));
-        //     defer self.allocator.free(stat_counts);
-
-        //     try self.gzip_stream.reader().readMultipleI32LE(stat_counts);
-
-        //     // Initialize team stats with known capacities
-        //     for (0..@intCast(self.match.header.team_count)) |i| {
-        //         var team_stat = TeamStats.init(self.allocator);
-        //         team_stat.team_id = @intCast(i);
-        //         team_stat.stat_count = stat_counts[i];
-
-        //         // Add sanity check for stat count
-        //         if (stat_counts[i] < 0 or stat_counts[i] > 100000) {
-        //             print("Warning: Invalid stat count {} for team {}, skipping\n", .{ stat_counts[i], i });
-        //             self.match.statistics.team_stats.appendAssumeCapacity(team_stat);
-        //             continue;
-        //         }
-
-        //         try team_stat.entries.ensureTotalCapacity(@intCast(stat_counts[i]));
-        //         self.match.statistics.team_stats.appendAssumeCapacity(team_stat);
-        //     }
-
-        //     // Second pass: read actual frame statistics in batches
-        //     for (self.match.statistics.team_stats.items) |*team_stat| {
-        //         const entry_count = @as(usize, @intCast(team_stat.stat_count));
-
-        //         for (0..entry_count) |_| {
-        //             // Read all 20 values for this entry at once
-        //             var frame_data: [20]f32 = undefined;
-
-        //             // Read frame (i32) and convert to f32 for batch processing
-        //             const frame = try self.gzip_stream.reader().readI32LE();
-
-        //             // Read all float values at once
-        //             try self.gzip_stream.reader().readMultipleF32LE(frame_data[0..19]);
-
-        //             // Read integer values
-        //             var int_data: [7]i32 = undefined;
-        //             try self.gzip_stream.reader().readMultipleI32LE(&int_data);
-
-        //             const frame_stat = TeamStatsDataPoint{
-        //                 .team_id = team_stat.team_id,
-        //                 .frame = frame,
-        //                 .metal_used = frame_data[0],
-        //                 .energy_used = frame_data[1],
-        //                 .metal_produced = frame_data[2],
-        //                 .energy_produced = frame_data[3],
-        //                 .metal_excess = frame_data[4],
-        //                 .energy_excess = frame_data[5],
-        //                 .metal_received = frame_data[6],
-        //                 .energy_received = frame_data[7],
-        //                 .metal_send = frame_data[8],
-        //                 .energy_send = frame_data[9],
-        //                 .damage_dealt = frame_data[10],
-        //                 .damage_received = frame_data[11],
-        //                 .units_produced = int_data[0],
-        //                 .units_died = int_data[1],
-        //                 .units_received = int_data[2],
-        //                 .units_sent = int_data[3],
-        //                 .units_captured = int_data[4],
-        //                 .units_out_captured = int_data[5],
-        //                 .units_killed = int_data[6],
-        //             };
-        //             team_stat.entries.appendAssumeCapacity(frame_stat);
-        //         }
-        //     }
-        // }
-    }
-
-    fn processPacketStreaming(self: *BarDemofileParser, game_time: i32, length: u32, packet_type: u8) !void {
-        // Calculate remaining bytes to read (subtract 1 for the packet type we already read)
-        const remaining_bytes = if (length > 1) length - 1 else 0;
-
-        switch (packet_type) {
-            NetMsg.CHAT => {
-                // NETMSG_CHAT has format: uint8_t messageSize; uint8_t from, dest; std::string message;
-                // The messageSize is redundant (same as packet length), so we ignore it
-                if (remaining_bytes < 3) {
-                    try self.gzip_stream.reader().skipBytes(remaining_bytes);
-                    return;
-                }
-                try self.gzip_stream.reader().skipBytes(1); // Skip message size byte
-                const from_id = try self.gzip_stream.reader().readU8();
-                const to_id = try self.gzip_stream.reader().readU8();
-                // The actual message length is remaining_bytes - 3 (for the 3 bytes we just read)
-                const message_len = remaining_bytes - 3;
-                const message = if (message_len > 0) blk: {
-                    const message_bytes = try self.gzip_stream.reader().readBytes(message_len);
-                    // Find null terminator
-                    var actual_len: usize = 0;
-                    for (message_bytes) |byte| {
-                        if (byte == 0) break;
-                        actual_len += 1;
-                    }
-                    // Create properly sized message
-                    const result = try self.allocator.alloc(u8, actual_len);
-                    @memcpy(result, message_bytes[0..actual_len]);
-                    self.allocator.free(message_bytes);
-                    break :blk result;
-                } else try self.allocator.alloc(u8, 0);
-                const msg = ChatMessage{
-                    .from_id = from_id,
-                    .to_id = to_id,
-                    .message = message,
-                    .game_timestamp = game_time,
-                };
-                try self.match.chat_messages.append(msg);
-            },
-
-            NetMsg.TEAM => {
-                // NETMSG_TEAM: uint8_t playerNum; uint8_t action; uint8_t param1;
-                if (remaining_bytes >= 3) {
-                    const player_num = try self.gzip_stream.reader().readU8();
-                    const action = try self.gzip_stream.reader().readU8();
-                    const param1 = try self.gzip_stream.reader().readU8();
-
-                    if (action == 2) { // 2 = resigned
-                        const death = TeamDeath{
-                            .team_id = player_num,
-                            .reason = action,
-                            .game_time = game_time,
-                        };
-                        try self.match.team_deaths.append(death);
-                    } else if (action == 4) { // 4 = TEAM_DIED, param1 = team that died
-                        const death = TeamDeath{
-                            .team_id = param1,
-                            .reason = action,
-                            .game_time = game_time,
-                        };
-                        try self.match.team_deaths.append(death);
-                    }
-
-                    // Skip any remaining bytes
-                    if (remaining_bytes > 3) {
-                        try self.gzip_stream.reader().skipBytes(remaining_bytes - 3);
-                    }
-                } else {
-                    try self.gzip_stream.reader().skipBytes(remaining_bytes);
-                }
-            },
-
-            else => {
-                // Skip unknown packet types
-                if (remaining_bytes > 0) {
-                    try self.gzip_stream.reader().skipBytes(remaining_bytes);
-                }
-            },
-        }
-    }
-};
+    };
+}

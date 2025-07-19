@@ -20,13 +20,19 @@ pub fn main() !void {
         return;
     }
 
-    const file_path = args[1];
-    const mode_str = if (args.len > 2) args[2] else "header";
-    const mode = if (std.mem.eql(u8, mode_str, "header")) ParseMode.header_only else if (std.mem.eql(u8, mode_str, "metadata")) ParseMode.metadata_only else if (std.mem.eql(u8, mode_str, "essential")) ParseMode.essential_only else if (std.mem.eql(u8, mode_str, "full")) ParseMode.full else ParseMode.header_only;
+    const filePath = args[1];
+    const modeStr = if (args.len > 2) args[2] else "header";
+    const mode = if (std.mem.eql(u8, modeStr, "header")) ParseMode.header_only else if (std.mem.eql(u8, modeStr, "metadata")) ParseMode.metadata_only else if (std.mem.eql(u8, modeStr, "essential")) ParseMode.essential_only else if (std.mem.eql(u8, modeStr, "full")) ParseMode.full else ParseMode.header_only;
 
-    var parser = try BarDemofileParser.init(allocator, file_path, mode);
-    defer parser.deinit();
+    const file = try std.fs.cwd().openFile(filePath, .{});
+    const fileData = try file.readToEndAlloc(allocator, 1024 * 1024 * 100);
+    defer allocator.free(fileData);
 
+    var fixedBufferStream = std.io.fixedBufferStream(fileData);
+    var gzipDecompressor = std.compress.gzip.decompressor(fixedBufferStream.reader());
+    const reader = gzipDecompressor.reader();
+
+    var parser = BarDemofileParser(@TypeOf(reader)).init(allocator, mode, reader);
     var match = try parser.parse();
     defer match.deinit();
 
