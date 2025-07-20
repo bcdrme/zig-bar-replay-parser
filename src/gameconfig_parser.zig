@@ -137,6 +137,7 @@ const Player = struct {
     skill: ?[]f64 = null,
     spectator: ?u32 = null,
     skilluncertainty: ?f64 = null,
+    startpos: ?[]f64 = null,
 
     fn init(id: u32) Player {
         return Player{ .id = id };
@@ -167,6 +168,7 @@ const Player = struct {
         } else {
             try writer.buffer.appendSlice(JsonConstants.NULL_STR);
         }
+        try writer.writeFloatArrayField("startpos", self.startpos);
         try writer.writeObjectEnd();
     }
 };

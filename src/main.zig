@@ -25,14 +25,15 @@ pub fn main() !void {
     const mode = if (std.mem.eql(u8, modeStr, "header")) ParseMode.header_only else if (std.mem.eql(u8, modeStr, "metadata")) ParseMode.metadata_only else if (std.mem.eql(u8, modeStr, "essential")) ParseMode.essential_only else if (std.mem.eql(u8, modeStr, "full")) ParseMode.full else ParseMode.header_only;
 
     const file = try std.fs.cwd().openFile(filePath, .{});
-    const fileData = try file.readToEndAlloc(allocator, 1024 * 1024 * 100);
+    const fileData = try file.readToEndAlloc(allocator, 1024 * 1024 * 200);
     defer allocator.free(fileData);
 
     var fixedBufferStream = std.io.fixedBufferStream(fileData);
     var gzipDecompressor = std.compress.gzip.decompressor(fixedBufferStream.reader());
     const reader = gzipDecompressor.reader();
 
-    var parser = BarDemofileParser(@TypeOf(reader)).init(allocator, mode, reader);
+    var parser = BarDemofileParser().init(allocator, mode, reader.any());
+
     var match = try parser.parse();
     defer match.deinit();
 

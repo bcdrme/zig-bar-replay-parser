@@ -379,19 +379,19 @@ pub const Header = extern struct {
 pub const ParseMode = enum {
     header_only, // Only parse header (fastest)
     metadata_only, // Parse header + basic metadata
-    essential_only, // Parse header + essential packets (chat, game events)
-    full, // Parse everything (slowest)
+    essential_only, // Parse header + basic metadata + statistics (winning ally teams, player stats, team stats)
+    full, // Parse everything (reads packets)
 };
 
-pub fn BarDemofileParser(comptime ReaderType: type) type {
+pub fn BarDemofileParser() type {
     return struct {
         const Self = @This();
-        reader: ReaderType,
+        reader: std.io.AnyReader,
         mode: ParseMode,
         match: BarMatch,
         allocator: Allocator,
 
-        pub fn init(allocator: Allocator, mode: ParseMode, reader: ReaderType) Self {
+        pub fn init(allocator: Allocator, mode: ParseMode, reader: std.io.AnyReader) Self {
             var barMatch = BarMatch.init(allocator);
             errdefer barMatch.deinit();
 
@@ -558,86 +558,60 @@ pub fn BarDemofileParser(comptime ReaderType: type) type {
                 return self.match; // Return early for metadata-only mode
             }
 
-            // Parse packets or skip demo stream datareader
-            // if (mode == .essential_only or mode == .full) {
-            //     parsePacketsStreaming(reader, &self.match, mode) catch |err| {
-            //         print("Warning: packet parsing failed: {}\n", .{err});
-            //         print("[reader position={}] [packet count={}] [packet parsed={}]\n", .{ reader.reader_pos, self.match.packet_count, self.match.packet_parsed });
-            //         return self.match; // Return what we have so far
-            //     };
-            //     print("packets parsed [gameID={s}] [packet count={}] [packet parsed={}]\n", .{ self.match.header.game_id, self.match.packet_count, self.match.packet_parsed });
-            // } else {
-            try self.reader.skipBytes(@as(u32, @intCast(self.match.header.demo_stream_size)), .{});
-            // }
+            if (self.mode == .essential_only) {
+                try self.reader.skipBytes(@as(u32, @intCast(self.match.header.demo_stream_size)), .{});
+                self.parseStatisticsStreaming() catch |err| {
+                    print("Warning: statistics parsing failed: {}\n", .{err});
+                    return self.match;
+                };
+                return self.match;
+            }
 
-            // Parse statistics
+            const packetData = try self.reader.readAllAlloc(self.allocator, @as(usize, @intCast(self.match.header.demo_stream_size)));
+            defer self.allocator.free(packetData);
+
+            self.parsePackets(packetData) catch |err| {
+                print("Warning: packet parsing failed: {}\n", .{err});
+                return self.match; // Return what we have so far
+            };
+            print("packets parsed [gameID={s}] [packet count={}] [packet parsed={}]\n", .{ self.match.header.game_id, self.match.packet_count, self.match.packet_parsed });
+
             self.parseStatisticsStreaming() catch |err| {
                 print("Warning: statistics parsing failed: {}\n", .{err});
-                return self.match; // Return what we have so far
+                return self.match;
             };
 
             return self.match;
         }
 
-        fn parsePacketsStreaming(self: *Self, match: *BarMatch, mode: ParseMode) !void {
-            var packet_bytes_read: usize = 0;
+        const StartPos = extern struct {
+            playerId: u8,
+            teamId: u8,
+            ready: u8,
+            position: [3]f64,
+        };
+
+        fn parsePackets(self: *Self, packetData: []u8) !void {
+            var fixedBufferStream = std.io.fixedBufferStream(packetData);
+            var reader = fixedBufferStream.reader();
             while (true) {
-                // Check if we are finished reading the demo stream
-                if (self.gzip_stream.reader().reader_pos >= match.stat_offset) {
-                    print("Reached end of demo stream [packet bytes read={}]\n", .{packet_bytes_read});
-                    break;
-                }
-
                 // Read game time as i32
-                const game_time = try self.gzip_stream.reader().readI32LE();
-
-                // Read packet length as u32
-                const length = try self.gzip_stream.reader().readU32LE();
-
-                // Read packet type
-                const packet_type = try self.gzip_stream.reader().readU8();
-
-                match.packet_count += 1;
-                packet_bytes_read += length;
-
-                if (match.packet_count >= 895936) {
-                    print("packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
-                }
-
-                // If length is 0 or just the packet type byte, skip
-                if (length <= 1) {
-                    continue;
-                }
-
-                // Only process essential packets in essential_only mode
-                const should_process = switch (mode) {
-                    .essential_only =>
-                    // packet_type == NetMsg.CHAT or
-                    packet_type == NetMsg.GAMEOVER or
-                        packet_type == NetMsg.QUIT,
-                    .full => true,
-                    else => false,
+                _ = reader.readInt(i32, .little) catch {
+                    break;
                 };
 
-                if (should_process) {
-                    // print("packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
-                    self.processPacketStreaming(game_time, length, packet_type) catch |err| {
-                        print("Error with packet [game_time={}] [length={}] [type={s}]\n", .{ game_time, length, netmsgToString(packet_type) });
-                        print("Error processing packet: {}\n", .{err});
-                        return err; // Stop on error
-                    };
-                    match.packet_parsed += 1;
-                } else {
-                    // Skip packet data if not processing (length - 1 because we already read the packet type)
-                    if (length > 1) {
-                        try self.gzip_stream.reader().skipBytes(length - 1);
-                    }
+                // Read packet length as u32
+                const length = try reader.readInt(u32, .little);
+                const packetType = try reader.readByte();
+                switch (packetType) {
+                    PacketType.START_POS => {
+                        const startPos = try reader.readStructEndian(StartPos, .little);
+                        const positions = try self.allocator.dupe(f64, startPos.position[0..]);
+                        self.match.game_config.players.items[startPos.playerId].startpos = positions;
+                    },
+                    else => try reader.skipBytes(length - 1, .{}),
                 }
-
-                // if (packet_type == NetMsg.QUIT) {
-                //     print("found quit packet, breaking [packet count={}]\n", .{match.packet_count});
-                //     break;
-                // }
+                self.match.packet_count += 1;
             }
         }
 
@@ -742,87 +716,6 @@ pub fn BarDemofileParser(comptime ReaderType: type) type {
             //         }
             //     }
             // }
-        }
-
-        fn processPacketStreaming(self: *Self, game_time: i32, length: u32, packet_type: u8) !void {
-            // Calculate remaining bytes to read (subtract 1 for the packet type we already read)
-            const remaining_bytes = if (length > 1) length - 1 else 0;
-
-            switch (packet_type) {
-                NetMsg.CHAT => {
-                    // NETMSG_CHAT has format: uint8_t messageSize; uint8_t from, dest; std::string message;
-                    // The messageSize is redundant (same as packet length), so we ignore it
-                    if (remaining_bytes < 3) {
-                        try self.gzip_stream.reader().skipBytes(remaining_bytes);
-                        return;
-                    }
-                    try self.gzip_stream.reader().skipBytes(1); // Skip message size byte
-                    const from_id = try self.gzip_stream.reader().readU8();
-                    const to_id = try self.gzip_stream.reader().readU8();
-                    // The actual message length is remaining_bytes - 3 (for the 3 bytes we just read)
-                    const message_len = remaining_bytes - 3;
-                    const message = if (message_len > 0) blk: {
-                        const message_bytes = try self.gzip_stream.reader().readBytes(message_len);
-                        // Find null terminator
-                        var actual_len: usize = 0;
-                        for (message_bytes) |byte| {
-                            if (byte == 0) break;
-                            actual_len += 1;
-                        }
-                        // Create properly sized message
-                        const result = try self.allocator.alloc(u8, actual_len);
-                        @memcpy(result, message_bytes[0..actual_len]);
-                        self.allocator.free(message_bytes);
-                        break :blk result;
-                    } else try self.allocator.alloc(u8, 0);
-                    const msg = ChatMessage{
-                        .from_id = from_id,
-                        .to_id = to_id,
-                        .message = message,
-                        .game_timestamp = game_time,
-                    };
-                    try self.match.chat_messages.append(msg);
-                },
-
-                NetMsg.TEAM => {
-                    // NETMSG_TEAM: uint8_t playerNum; uint8_t action; uint8_t param1;
-                    if (remaining_bytes >= 3) {
-                        const player_num = try self.gzip_stream.reader().readU8();
-                        const action = try self.gzip_stream.reader().readU8();
-                        const param1 = try self.gzip_stream.reader().readU8();
-
-                        if (action == 2) { // 2 = resigned
-                            const death = TeamDeath{
-                                .team_id = player_num,
-                                .reason = action,
-                                .game_time = game_time,
-                            };
-                            try self.match.team_deaths.append(death);
-                        } else if (action == 4) { // 4 = TEAM_DIED, param1 = team that died
-                            const death = TeamDeath{
-                                .team_id = param1,
-                                .reason = action,
-                                .game_time = game_time,
-                            };
-                            try self.match.team_deaths.append(death);
-                        }
-
-                        // Skip any remaining bytes
-                        if (remaining_bytes > 3) {
-                            try self.gzip_stream.reader().skipBytes(remaining_bytes - 3);
-                        }
-                    } else {
-                        try self.gzip_stream.reader().skipBytes(remaining_bytes);
-                    }
-                },
-
-                else => {
-                    // Skip unknown packet types
-                    if (remaining_bytes > 0) {
-                        try self.gzip_stream.reader().skipBytes(remaining_bytes);
-                    }
-                },
-            }
         }
     };
 }

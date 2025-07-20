@@ -59,7 +59,7 @@ async function runWithNodeWASI() {
       const outputLength = instance.exports.parseDemoFileFromMemory(
         fileDataPtr,
         fileBuffer.length,
-        1
+        3
       );
 
       if (outputLength === 0) {
