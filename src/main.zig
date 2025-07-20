@@ -32,7 +32,7 @@ pub fn main() !void {
     var gzipDecompressor = std.compress.gzip.decompressor(fixedBufferStream.reader());
     const reader = gzipDecompressor.reader();
 
-    var parser = BarDemofileParser().init(allocator, mode, reader.any());
+    var parser = BarDemofileParser.init(allocator, mode, reader.any());
 
     var match = try parser.parse();
     defer match.deinit();
