@@ -17,22 +17,24 @@ const PacketType = struct {
 
 const Vector3 = struct { x: f32, y: f32, z: f32 };
 
-const ChatMessage = struct {
+const ChatMessagePacket = struct {
     from_id: u8,
     to_id: u8,
     message: []const u8,
     game_timestamp: i32,
 };
 
-const PlayerStats = packed struct {
+const PlayerStats = struct {
+    num_commands: i32,
+    unit_commands: i32,
     mouse_pixels: i32,
     mouse_clicks: i32,
     key_presses: i32,
 };
 
-const TeamStatsDataPoint = packed struct {
-    team_id: i32,
+const TeamStatsDataPoint = struct {
     frame: i32,
+
     metal_used: f32,
     energy_used: f32,
     metal_produced: f32,
@@ -43,8 +45,10 @@ const TeamStatsDataPoint = packed struct {
     energy_received: f32,
     metal_send: f32,
     energy_send: f32,
+
     damage_dealt: f32,
     damage_received: f32,
+
     units_produced: i32,
     units_died: i32,
     units_received: i32,
@@ -52,18 +56,59 @@ const TeamStatsDataPoint = packed struct {
     units_captured: i32,
     units_out_captured: i32,
     units_killed: i32,
+
+    pub fn readFrom(reader: std.io.AnyReader) !TeamStatsDataPoint {
+        return TeamStatsDataPoint{
+            .frame = try reader.readInt(i32, .little),
+            .metal_used = @as(f32, @bitCast(try reader.readInt(u32, .little))),
+            .energy_used = @as(f32, @bitCast(try reader.readInt(u32, .little))),
+            .metal_produced = @as(f32, @bitCast(try reader.readInt(u32, .little))),
+            .energy_produced = @as(f32, @bitCast(try reader.readInt(u32, .little))),
+            .metal_excess = @as(f32, @bitCast(try reader.readInt(u32, .little))),
+            .energy_excess = @as(f32, @bitCast(try reader.readInt(u32, .little))),
+            .metal_received = @as(f32, @bitCast(try reader.readInt(u32, .little))),
+            .energy_received = @as(f32, @bitCast(try reader.readInt(u32, .little))),
+            .metal_send = @as(f32, @bitCast(try reader.readInt(u32, .little))),
+            .energy_send = @as(f32, @bitCast(try reader.readInt(u32, .little))),
+            .damage_dealt = @as(f32, @bitCast(try reader.readInt(u32, .little))),
+            .damage_received = @as(f32, @bitCast(try reader.readInt(u32, .little))),
+            .units_produced = try reader.readInt(i32, .little),
+            .units_died = try reader.readInt(i32, .little),
+            .units_received = try reader.readInt(i32, .little),
+            .units_sent = try reader.readInt(i32, .little),
+            .units_captured = try reader.readInt(i32, .little),
+            .units_out_captured = try reader.readInt(i32, .little),
+            .units_killed = try reader.readInt(i32, .little),
+        };
+    }
 };
 
 const TeamStats = struct {
     team_id: i32,
     stat_count: i32,
-    entries: []TeamStatsDataPoint,
+    entries: ArrayList(TeamStatsDataPoint),
+
+    pub fn init(allocator: Allocator) TeamStats {
+        return TeamStats{
+            .team_id = 0,
+            .stat_count = 0,
+            .entries = ArrayList(TeamStatsDataPoint).init(allocator),
+        };
+    }
 };
 
 const Statistics = struct {
     winning_ally_team_ids: []u8,
-    player_stats: []PlayerStats,
-    team_stats: []TeamStats,
+    player_stats: ArrayList(PlayerStats),
+    team_stats: ArrayList(TeamStats),
+
+    pub fn init(allocator: Allocator) Statistics {
+        return Statistics{
+            .winning_ally_team_ids = &[_]u8{},
+            .player_stats = ArrayList(PlayerStats).init(allocator),
+            .team_stats = ArrayList(TeamStats).init(allocator),
+        };
+    }
 };
 
 pub const Header = extern struct {
@@ -104,7 +149,7 @@ pub const BarMatch = struct {
     packet_offset: i32 = 0,
     stat_offset: i32 = 0,
     packet_count: i32 = 0,
-    chat_messages: ArrayList(ChatMessage),
+    chat_messages: ArrayList(ChatMessagePacket),
     statistics: Statistics,
     allocator: Allocator,
 
@@ -112,12 +157,8 @@ pub const BarMatch = struct {
         return BarMatch{
             .header = Header.init(),
             .game_config = gameconfig_parser.GameConfig.init(allocator),
-            .chat_messages = ArrayList(ChatMessage).init(allocator),
-            .statistics = Statistics{
-                .winning_ally_team_ids = &[_]u8{},
-                .player_stats = &[_]PlayerStats{},
-                .team_stats = &[_]TeamStats{},
-            },
+            .chat_messages = ArrayList(ChatMessagePacket).init(allocator),
+            .statistics = Statistics.init(allocator),
             .allocator = allocator,
         };
     }
@@ -134,17 +175,8 @@ pub const BarMatch = struct {
         if (self.statistics.winning_ally_team_ids.len > 0) {
             self.allocator.free(self.statistics.winning_ally_team_ids);
         }
-        if (self.statistics.player_stats.len > 0) {
-            self.allocator.free(self.statistics.player_stats);
-        }
-        for (self.statistics.team_stats) |team| {
-            if (team.entries.len > 0) {
-                self.allocator.free(team.entries);
-            }
-        }
-        if (self.statistics.team_stats.len > 0) {
-            self.allocator.free(self.statistics.team_stats);
-        }
+        self.statistics.player_stats.deinit();
+        self.statistics.team_stats.deinit();
     }
 
     pub fn toJson(self: *const BarMatch, allocator: Allocator) ![]u8 {
@@ -186,17 +218,17 @@ pub const BarMatch = struct {
             try writer.print("{d}", .{team_id});
         }
         try writer.writeAll("],\"player_stats\":[");
-        for (self.statistics.player_stats, 0..) |stat, i| {
+        for (self.statistics.player_stats.items, 0..) |stat, i| {
             if (i > 0) try writer.writeByte(',');
             try writer.print("{{\"player_id\":{d},\"mouse_pixels\":{d},\"mouse_clicks\":{d},\"key_presses\":{d}}}", .{ i, stat.mouse_pixels, stat.mouse_clicks, stat.key_presses });
         }
         try writer.writeAll("],\"team_stats\":[");
-        for (self.statistics.team_stats, 0..) |team_stat, i| {
+        for (self.statistics.team_stats.items, 0..) |team_stat, i| {
             if (i > 0) try writer.writeByte(',');
             try writer.print("{{\"team_id\":{d},\"stat_count\":{d},\"entries\":[", .{ team_stat.team_id, team_stat.stat_count });
-            for (team_stat.entries, 0..) |entry, j| {
+            for (team_stat.entries.items, 0..) |entry, j| {
                 if (j > 0) try writer.writeByte(',');
-                try writer.print("{{\"team_id\":{d},\"frame\":{d},\"metal_used\":{d:.6},\"energy_used\":{d:.6},\"metal_produced\":{d:.6},\"energy_produced\":{d:.6},\"metal_excess\":{d:.6},\"energy_excess\":{d:.6},\"metal_received\":{d:.6},\"energy_received\":{d:.6},\"metal_send\":{d:.6},\"energy_send\":{d:.6},\"damage_dealt\":{d:.6},\"damage_received\":{d:.6},\"units_produced\":{d},\"units_died\":{d},\"units_received\":{d},\"units_sent\":{d},\"units_captured\":{d},\"units_out_captured\":{d},\"units_killed\":{d}}}", .{ entry.team_id, entry.frame, entry.metal_used, entry.energy_used, entry.metal_produced, entry.energy_produced, entry.metal_excess, entry.energy_excess, entry.metal_received, entry.energy_received, entry.metal_send, entry.energy_send, entry.damage_dealt, entry.damage_received, entry.units_produced, entry.units_died, entry.units_received, entry.units_sent, entry.units_captured, entry.units_out_captured, entry.units_killed });
+                try writer.print("{{\"frame\":{d},\"metal_used\":{d:.6},\"energy_used\":{d:.6},\"metal_produced\":{d:.6},\"energy_produced\":{d:.6},\"metal_excess\":{d:.6},\"energy_excess\":{d:.6},\"metal_received\":{d:.6},\"energy_received\":{d:.6},\"metal_send\":{d:.6},\"energy_send\":{d:.6},\"damage_dealt\":{d:.6},\"damage_received\":{d:.6},\"units_produced\":{d},\"units_died\":{d},\"units_received\":{d},\"units_sent\":{d},\"units_captured\":{d},\"units_out_captured\":{d},\"units_killed\":{d}}}", .{ entry.frame, entry.metal_used, entry.energy_used, entry.metal_produced, entry.energy_produced, entry.metal_excess, entry.energy_excess, entry.metal_received, entry.energy_received, entry.metal_send, entry.energy_send, entry.damage_dealt, entry.damage_received, entry.units_produced, entry.units_died, entry.units_received, entry.units_sent, entry.units_captured, entry.units_out_captured, entry.units_killed });
             }
             try writer.writeAll("]}");
         }
@@ -212,181 +244,178 @@ pub const BarMatch = struct {
     }
 };
 
-pub const BarDemofileParser = struct {
-    reader: std.io.AnyReader,
-    mode: ParseMode,
-    allocator: Allocator,
+pub fn parse(allocator: Allocator, mode: ParseMode, reader: std.io.AnyReader) !BarMatch {
+    var match = BarMatch.init(allocator);
+    errdefer match.deinit();
 
-    pub fn init(allocator: Allocator, mode: ParseMode, reader: std.io.AnyReader) BarDemofileParser {
-        return BarDemofileParser{
-            .reader = reader,
-            .mode = mode,
-            .allocator = allocator,
-        };
+    match.header = try reader.readStruct(Header);
+
+    if (!std.mem.eql(u8, &match.header.magic, "spring demofile\x00")) {
+        return ParseError.InvalidHeader;
     }
 
-    pub fn parse(self: *BarDemofileParser) !BarMatch {
-        var match = BarMatch.init(self.allocator);
-        errdefer match.deinit();
+    match.packet_offset = @sizeOf(Header) + match.header.script_size;
+    match.stat_offset = match.packet_offset + match.header.demo_stream_size;
 
-        match.header = try self.reader.readStruct(Header);
+    if (mode == .header_only) return match;
 
-        if (!std.mem.eql(u8, &match.header.magic, "spring demofile\x00")) {
-            return ParseError.InvalidHeader;
-        }
+    if (match.header.script_size > 0) {
+        const script = try allocator.alloc(u8, @intCast(match.header.script_size));
+        defer allocator.free(script);
+        _ = try reader.readAll(script);
+        match.game_config = try gameconfig_parser.parseScript(allocator, script);
+    }
 
-        match.packet_offset = @sizeOf(Header) + match.header.script_size;
-        match.stat_offset = match.packet_offset + match.header.demo_stream_size;
+    if (mode == .metadata_only) return match;
 
-        if (self.mode == .header_only) return match;
-
-        if (match.header.script_size > 0) {
-            const script = try self.allocator.alloc(u8, @intCast(match.header.script_size));
-            defer self.allocator.free(script);
-            _ = try self.reader.readAll(script);
-            match.game_config = try gameconfig_parser.parseScript(self.allocator, script);
-        }
-
-        if (self.mode == .metadata_only) return match;
-
-        if (self.mode == .essential_only) {
-            try self.reader.skipBytes(@intCast(match.header.demo_stream_size), .{});
-            try self.parseStatistics(&match);
-            return match;
-        }
-
-        try self.parsePacketsStreaming(&match);
-        try self.parseStatistics(&match);
-
+    if (mode == .essential_only) {
+        try reader.skipBytes(@intCast(match.header.demo_stream_size), .{});
+        try parseStatistics(allocator, reader, &match);
         return match;
     }
 
-    const StartPosPacket = struct {
-        playerId: u8,
-        teamId: u8,
-        ready: u8,
-        x: f32,
-        y: f32,
-        z: f32,
+    try parsePacketsStreaming(allocator, reader, &match);
+    try parseStatistics(allocator, reader, &match);
 
-        pub fn readFrom(reader: anytype) !StartPosPacket {
-            const playerId = try reader.readByte();
-            const teamId = try reader.readByte();
-            const ready = try reader.readByte();
-            const x = @as(f32, @bitCast(try reader.readInt(u32, .little)));
-            const y = @as(f32, @bitCast(try reader.readInt(u32, .little)));
-            const z = @as(f32, @bitCast(try reader.readInt(u32, .little)));
+    return match;
+}
 
-            return StartPosPacket{
-                .playerId = playerId,
-                .teamId = teamId,
-                .ready = ready,
-                .x = x,
-                .y = y,
-                .z = z,
-            };
-        }
-    };
+const StartPosPacket = struct {
+    playerId: u8,
+    teamId: u8,
+    ready: u8,
+    x: f32,
+    y: f32,
+    z: f32,
 
-    fn parsePacketsStreaming(self: *BarDemofileParser, match: *BarMatch) !void {
-        var bytes_read: u32 = 0;
-        const total_size: u32 = @intCast(match.header.demo_stream_size);
+    pub fn readFrom(reader: std.io.AnyReader) !StartPosPacket {
+        const playerId = try reader.readByte();
+        const teamId = try reader.readByte();
+        const ready = try reader.readByte();
+        const x = @as(f32, @bitCast(try reader.readInt(u32, .little)));
+        const y = @as(f32, @bitCast(try reader.readInt(u32, .little)));
+        const z = @as(f32, @bitCast(try reader.readInt(u32, .little)));
 
-        while (bytes_read < total_size) {
-            const game_time = self.reader.readInt(i32, .little) catch break;
-            bytes_read += 4;
-
-            const length = try self.reader.readInt(u32, .little);
-            bytes_read += 4;
-
-            if (length > 2400) {
-                std.debug.print("Warning: Packet length too large: {d}\n", .{length});
-            }
-
-            const packet_type = try self.reader.readByte();
-            switch (packet_type) {
-                PacketType.START_POS => {
-                    const pos = try StartPosPacket.readFrom(self.reader);
-                    std.debug.print("StartPos: playerId={d}, teamId={d}, ready={d}, x={d}, y={d}, z={d}\n", .{
-                        pos.playerId, pos.teamId, pos.ready, pos.x, pos.y, pos.z,
-                    });
-                    std.debug.print("size of StartPosPacket: {d}\n", .{@sizeOf(StartPosPacket)});
-                    const startpos = try match.game_config.arena.allocator().alloc(f32, 3);
-                    startpos[0] = pos.x;
-                    startpos[1] = pos.y;
-                    startpos[2] = pos.z;
-                    for (match.game_config.players.items) |*player| {
-                        if (player.id == pos.playerId) {
-                            player.startpos = startpos;
-                            break;
-                        }
-                    }
-                },
-                PacketType.CHAT => {
-                    const from = try self.reader.readByte();
-                    const to = try self.reader.readByte();
-                    const msg_len = length - 3;
-                    const msg = try self.allocator.alloc(u8, msg_len);
-                    _ = try self.reader.readAll(msg);
-                    try match.chat_messages.append(.{
-                        .from_id = from,
-                        .to_id = to,
-                        .message = msg,
-                        .game_timestamp = game_time,
-                    });
-                },
-                else => {
-                    try self.reader.skipBytes(length - 1, .{});
-                },
-            }
-            bytes_read += length;
-            match.packet_count += 1;
-        }
-    }
-
-    fn parseStatistics(self: *BarDemofileParser, match: *BarMatch) !void {
-        if (match.header.winning_ally_teams_size > 0) {
-            const teams = try self.allocator.alloc(u8, @intCast(match.header.winning_ally_teams_size));
-            _ = try self.reader.readAll(teams);
-            match.statistics.winning_ally_team_ids = teams;
-        }
-
-        if (match.header.player_count > 0) {
-            const stats = try self.allocator.alloc(PlayerStats, @intCast(match.header.player_count));
-            const bytes = std.mem.sliceAsBytes(stats);
-            _ = try self.reader.readAll(bytes);
-            match.statistics.player_stats = stats;
-        }
-
-        if (match.header.team_count > 0) {
-            const team_count: usize = @intCast(match.header.team_count);
-            const teams = try self.allocator.alloc(TeamStats, team_count);
-
-            const stat_counts = try self.allocator.alloc(i32, team_count);
-            defer self.allocator.free(stat_counts);
-
-            const counts_bytes = std.mem.sliceAsBytes(stat_counts);
-            _ = try self.reader.readAll(counts_bytes);
-
-            for (teams, 0..) |*team, i| {
-                team.team_id = @intCast(i);
-                team.stat_count = stat_counts[i];
-
-                if (stat_counts[i] > 0 and stat_counts[i] < 100000) {
-                    const entry_count: usize = @intCast(stat_counts[i]);
-                    const entries = try self.allocator.alloc(TeamStatsDataPoint, entry_count);
-
-                    for (entries) |*entry| {
-                        const raw_entry = try self.reader.readStruct(TeamStatsDataPoint);
-                        entry.* = raw_entry;
-                        entry.team_id = team.team_id; // Override with correct team ID
-                    }
-                    team.entries = entries;
-                } else {
-                    team.entries = &[_]TeamStatsDataPoint{};
-                }
-            }
-            match.statistics.team_stats = teams;
-        }
+        return StartPosPacket{
+            .playerId = playerId,
+            .teamId = teamId,
+            .ready = ready,
+            .x = x,
+            .y = y,
+            .z = z,
+        };
     }
 };
+
+fn parsePacketsStreaming(allocator: Allocator, reader: std.io.AnyReader, match: *BarMatch) !void {
+    var bytes_read: u32 = 0;
+    const total_size: u32 = @intCast(match.header.demo_stream_size);
+
+    while (bytes_read < total_size) {
+        const game_time = try reader.readInt(i32, .little);
+        bytes_read += 4;
+
+        const length = try reader.readInt(u32, .little);
+        bytes_read += 4;
+
+        const packet_type = try reader.readByte();
+        switch (packet_type) {
+            PacketType.START_POS => {
+                const pos = try StartPosPacket.readFrom(reader);
+                // std.debug.print("StartPos: playerId={d}, teamId={d}, ready={d}, x={d}, y={d}, z={d}\n", .{
+                //     pos.playerId, pos.teamId, pos.ready, pos.x, pos.y, pos.z,
+                // });
+                // std.debug.print("size of StartPosPacket: {d}\n", .{@sizeOf(StartPosPacket)});
+                const startpos = try match.game_config.arena.allocator().alloc(f32, 3);
+                startpos[0] = pos.x;
+                startpos[1] = pos.y;
+                startpos[2] = pos.z;
+                for (match.game_config.players.items) |*player| {
+                    if (player.id == pos.playerId) {
+                        player.startpos = startpos;
+                        break;
+                    }
+                }
+            },
+            PacketType.CHAT => {
+                const from = try reader.readByte();
+                const to = try reader.readByte();
+                const msg_len = length - 3;
+                const msg = try allocator.alloc(u8, msg_len);
+                _ = try reader.readAll(msg);
+                try match.chat_messages.append(.{
+                    .from_id = from,
+                    .to_id = to,
+                    .message = msg,
+                    .game_timestamp = game_time,
+                });
+            },
+            else => {
+                try reader.skipBytes(length - 1, .{});
+            },
+        }
+        bytes_read += length;
+        match.packet_count += 1;
+    }
+}
+
+fn parseStatistics(allocator: Allocator, reader: std.io.AnyReader, match: *BarMatch) !void {
+    if (match.header.winning_ally_teams_size > 0) {
+        const teams = try allocator.alloc(u8, @intCast(match.header.winning_ally_teams_size));
+        _ = try reader.readAll(teams);
+        match.statistics.winning_ally_team_ids = teams;
+    }
+
+    if (match.header.player_stat_size > 0) {
+        const playerStatsBuffer = try allocator.alloc(u8, @intCast(match.header.player_stat_size));
+        _ = try reader.readAll(playerStatsBuffer);
+        const playerStatElemSize: usize = @intCast(match.header.player_stat_elem_size);
+        const playerCount: usize = @intCast(match.header.player_count);
+        for (0..playerCount) |i| {
+            const offset = i * playerStatElemSize;
+            const playerStatSlice = playerStatsBuffer[offset .. offset + playerStatElemSize];
+            const num_commands = @as(i32, @bitCast(std.mem.readInt(u32, playerStatSlice[0..4], .little)));
+            const unit_commands = @as(i32, @bitCast(std.mem.readInt(u32, playerStatSlice[4..8], .little)));
+            const mouse_pixels = @as(i32, @bitCast(std.mem.readInt(u32, playerStatSlice[8..12], .little)));
+            const mouse_clicks = @as(i32, @bitCast(std.mem.readInt(u32, playerStatSlice[12..16], .little)));
+            const key_presses = @as(i32, @bitCast(std.mem.readInt(u32, playerStatSlice[16..20], .little)));
+            const stat = PlayerStats{
+                .num_commands = num_commands,
+                .unit_commands = unit_commands,
+                .mouse_pixels = mouse_pixels,
+                .mouse_clicks = mouse_clicks,
+                .key_presses = key_presses,
+            };
+            try match.statistics.player_stats.append(stat);
+        }
+    }
+
+    if (match.header.team_count > 0) {
+        const teamCount: usize = @intCast(match.header.team_count);
+        const teamStatSize: usize = @intCast(match.header.team_stat_size);
+        // const teamStatElemSize: usize = @intCast(match.header.team_stat_elem_size);
+
+        var teams = ArrayList(TeamStats).init(allocator);
+        const teamStatsBuffer = try allocator.alloc(u8, @intCast(teamStatSize));
+        _ = try reader.readAll(teamStatsBuffer);
+
+        var fixedBufferStream = std.io.fixedBufferStream(teamStatsBuffer);
+        const teamStatsReader = fixedBufferStream.reader();
+
+        const numberOfStatsForTeam = try allocator.alloc(u8, teamCount * 4);
+        _ = try teamStatsReader.readAll(numberOfStatsForTeam);
+
+        for (0..teamCount) |i| {
+            var teamStat = TeamStats.init(allocator);
+            teamStat.team_id = @intCast(i);
+            teamStat.stat_count = std.mem.bytesAsValue(i32, numberOfStatsForTeam[i * 4 .. (i + 1) * 4]).*;
+            for (0..@intCast(teamStat.stat_count)) |_| {
+                const entry = try TeamStatsDataPoint.readFrom(teamStatsReader.any());
+                try teamStat.entries.append(entry);
+            }
+
+            try teams.append(teamStat);
+        }
+        match.statistics.team_stats = teams;
+    }
+}
