@@ -24,13 +24,13 @@ const ChatMessage = struct {
     game_timestamp: i32,
 };
 
-const PlayerStats = extern struct {
+const PlayerStats = packed struct {
     mouse_pixels: i32,
     mouse_clicks: i32,
     key_presses: i32,
 };
 
-const TeamStatsDataPoint = extern struct {
+const TeamStatsDataPoint = packed struct {
     team_id: i32,
     frame: i32,
     metal_used: f32,
@@ -261,11 +261,31 @@ pub const BarDemofileParser = struct {
         return match;
     }
 
-    const StartPos = extern struct {
+    const StartPosPacket = struct {
         playerId: u8,
         teamId: u8,
         ready: u8,
-        position: [3]f64,
+        x: f32,
+        y: f32,
+        z: f32,
+
+        pub fn readFrom(reader: anytype) !StartPosPacket {
+            const playerId = try reader.readByte();
+            const teamId = try reader.readByte();
+            const ready = try reader.readByte();
+            const x = @as(f32, @bitCast(try reader.readInt(u32, .little)));
+            const y = @as(f32, @bitCast(try reader.readInt(u32, .little)));
+            const z = @as(f32, @bitCast(try reader.readInt(u32, .little)));
+
+            return StartPosPacket{
+                .playerId = playerId,
+                .teamId = teamId,
+                .ready = ready,
+                .x = x,
+                .y = y,
+                .z = z,
+            };
+        }
     };
 
     fn parsePacketsStreaming(self: *BarDemofileParser, match: *BarMatch) !void {
@@ -279,23 +299,28 @@ pub const BarDemofileParser = struct {
             const length = try self.reader.readInt(u32, .little);
             bytes_read += 4;
 
-            if (bytes_read + length > total_size) break;
+            if (length > 2400) {
+                std.debug.print("Warning: Packet length too large: {d}\n", .{length});
+            }
 
             const packet_type = try self.reader.readByte();
-            bytes_read += 1;
-
             switch (packet_type) {
                 PacketType.START_POS => {
-                    const pos = try self.reader.readStruct(StartPos);
-                    if (pos.playerId < match.game_config.players.items.len) {
-                        // Use the GameConfig's arena allocator for consistency
-                        const startpos = try match.game_config.string_pool().alloc(f64, 3);
-                        startpos[0] = pos.position[0];
-                        startpos[1] = pos.position[1];
-                        startpos[2] = pos.position[2];
-                        match.game_config.players.items[pos.playerId].startpos = startpos;
+                    const pos = try StartPosPacket.readFrom(self.reader);
+                    std.debug.print("StartPos: playerId={d}, teamId={d}, ready={d}, x={d}, y={d}, z={d}\n", .{
+                        pos.playerId, pos.teamId, pos.ready, pos.x, pos.y, pos.z,
+                    });
+                    std.debug.print("size of StartPosPacket: {d}\n", .{@sizeOf(StartPosPacket)});
+                    const startpos = try match.game_config.arena.allocator().alloc(f32, 3);
+                    startpos[0] = pos.x;
+                    startpos[1] = pos.y;
+                    startpos[2] = pos.z;
+                    for (match.game_config.players.items) |*player| {
+                        if (player.id == pos.playerId) {
+                            player.startpos = startpos;
+                            break;
+                        }
                     }
-                    bytes_read += @sizeOf(StartPos);
                 },
                 PacketType.CHAT => {
                     const from = try self.reader.readByte();
@@ -309,13 +334,12 @@ pub const BarDemofileParser = struct {
                         .message = msg,
                         .game_timestamp = game_time,
                     });
-                    bytes_read += length - 1;
                 },
                 else => {
                     try self.reader.skipBytes(length - 1, .{});
-                    bytes_read += length - 1;
                 },
             }
+            bytes_read += length;
             match.packet_count += 1;
         }
     }

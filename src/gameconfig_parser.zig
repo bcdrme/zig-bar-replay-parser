@@ -13,11 +13,40 @@ const Player = struct {
     skill: ?[]f64 = null,
     spectator: ?u32 = null,
     skilluncertainty: ?f64 = null,
-    startpos: ?[]f64 = null,
+    startpos: ?[]f32 = null,
 
     fn writeToJson(self: *const Player, writer: anytype) !void {
-        try writer.print("{{\"id\":{d},\"team\":{?d},\"countrycode\":{?s},\"accountid\":{?d},\"name\":{?s},\"rank\":{?d},", .{ self.id, self.team, self.countrycode, self.accountid, self.name, self.rank });
-        try writer.writeAll("\"skill\":");
+        try writer.print("{{\"id\":{d},\"team\":", .{self.id});
+        if (self.team) |team| {
+            try writer.print("{d}", .{team});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"countrycode\":");
+        if (self.countrycode) |cc| {
+            try writer.print("\"{s}\"", .{cc});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"accountid\":");
+        if (self.accountid) |aid| {
+            try writer.print("{d}", .{aid});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"name\":");
+        if (self.name) |name| {
+            try writer.print("\"{s}\"", .{name});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"rank\":");
+        if (self.rank) |rank| {
+            try writer.print("{d}", .{rank});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"skill\":");
         if (self.skill) |skill| {
             try writer.writeByte('[');
             for (skill, 0..) |v, i| {
@@ -28,7 +57,19 @@ const Player = struct {
         } else {
             try writer.writeAll("null");
         }
-        try writer.print(",\"spectator\":{?d},\"skilluncertainty\":{?d:.6},\"startpos\":", .{ self.spectator, self.skilluncertainty });
+        try writer.writeAll(",\"spectator\":");
+        if (self.spectator) |spec| {
+            try writer.print("{d}", .{spec});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"skilluncertainty\":");
+        if (self.skilluncertainty) |su| {
+            try writer.print("{d:.6}", .{su});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"startpos\":");
         if (self.startpos) |pos| {
             try writer.writeByte('[');
             for (pos, 0..) |v, i| {
@@ -52,7 +93,19 @@ const Team = struct {
     handicap: ?u32 = null,
 
     fn writeToJson(self: *const Team, writer: anytype) !void {
-        try writer.print("{{\"id\":{d},\"allyteam\":{?d},\"teamleader\":{?d},\"rgbcolor\":", .{ self.id, self.allyteam, self.teamleader });
+        try writer.print("{{\"id\":{d},\"allyteam\":", .{self.id});
+        if (self.allyteam) |at| {
+            try writer.print("{d}", .{at});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"teamleader\":");
+        if (self.teamleader) |tl| {
+            try writer.print("{d}", .{tl});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"rgbcolor\":");
         if (self.rgbcolor) |color| {
             try writer.writeByte('[');
             for (color, 0..) |v, i| {
@@ -63,7 +116,19 @@ const Team = struct {
         } else {
             try writer.writeAll("null");
         }
-        try writer.print(",\"side\":{?s},\"handicap\":{?d}}}", .{ self.side, self.handicap });
+        try writer.writeAll(",\"side\":");
+        if (self.side) |side| {
+            try writer.print("\"{s}\"", .{side});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"handicap\":");
+        if (self.handicap) |hc| {
+            try writer.print("{d}", .{hc});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeByte('}');
     }
 };
 
@@ -76,7 +141,37 @@ const AllyTeam = struct {
     numallies: ?u32 = null,
 
     fn writeToJson(self: *const AllyTeam, writer: anytype) !void {
-        try writer.print("{{\"id\":{d},\"startrectleft\":{?d:.6},\"startrectright\":{?d:.6},\"startrectbottom\":{?d:.6},\"startrecttop\":{?d:.6},\"numallies\":{?d}}}", .{ self.id, self.startrectleft, self.startrectright, self.startrectbottom, self.startrecttop, self.numallies });
+        try writer.print("{{\"id\":{d},\"startrectleft\":", .{self.id});
+        if (self.startrectleft) |v| {
+            try writer.print("{d:.6}", .{v});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"startrectright\":");
+        if (self.startrectright) |v| {
+            try writer.print("{d:.6}", .{v});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"startrectbottom\":");
+        if (self.startrectbottom) |v| {
+            try writer.print("{d:.6}", .{v});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"startrecttop\":");
+        if (self.startrecttop) |v| {
+            try writer.print("{d:.6}", .{v});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"numallies\":");
+        if (self.numallies) |v| {
+            try writer.print("{d}", .{v});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeByte('}');
     }
 };
 
@@ -131,10 +226,6 @@ pub const GameConfig = struct {
         self.arena.deinit();
     }
 
-    pub fn string_pool(self: *GameConfig) Allocator {
-        return self.arena.allocator();
-    }
-
     pub fn toJson(self: *const GameConfig, allocator: Allocator) ![]u8 {
         const estimated_size = 4096 + (self.players.items.len * 512) + (self.teams.items.len * 256) + (self.allyteams.items.len * 256);
         var json = try ArrayList(u8).initCapacity(allocator, estimated_size);
@@ -166,7 +257,41 @@ pub const GameConfig = struct {
         try self.writeOptionsSection(writer, "restrict", self.restrict);
         try writer.writeByte(',');
 
-        try writer.print("\"ishost\":{?d},\"hostip\":{?s},\"numallyteams\":{?d},\"server_match_id\":{?d},\"numteams\":{?d},\"startpostype\":{?d},\"gametype\":{?s},\"hosttype\":{?s},\"mapname\":{?s},\"autohostport\":{?d},\"numrestrictions\":{?d},\"autohostname\":{?s},\"autohostrank\":{?d},\"autohostaccountid\":{?d},\"numplayers\":{?d},\"autohostcountrycode\":{?s},\"hostport\":{?d}}}", .{ self.ishost, self.hostip, self.numallyteams, self.server_match_id, self.numteams, self.startpostype, self.gametype, self.hosttype, self.mapname, self.autohostport, self.numrestrictions, self.autohostname, self.autohostrank, self.autohostaccountid, self.numplayers, self.autohostcountrycode, self.hostport });
+        try writer.writeAll("\"ishost\":");
+        if (self.ishost) |v| try writer.print("{d}", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"hostip\":");
+        if (self.hostip) |v| try writer.print("\"{s}\"", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"numallyteams\":");
+        if (self.numallyteams) |v| try writer.print("{d}", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"server_match_id\":");
+        if (self.server_match_id) |v| try writer.print("{d}", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"numteams\":");
+        if (self.numteams) |v| try writer.print("{d}", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"startpostype\":");
+        if (self.startpostype) |v| try writer.print("{d}", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"gametype\":");
+        if (self.gametype) |v| try writer.print("\"{s}\"", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"hosttype\":");
+        if (self.hosttype) |v| try writer.print("\"{s}\"", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"mapname\":");
+        if (self.mapname) |v| try writer.print("\"{s}\"", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"autohostport\":");
+        if (self.autohostport) |v| try writer.print("{d}", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"numrestrictions\":");
+        if (self.numrestrictions) |v| try writer.print("{d}", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"autohostname\":");
+        if (self.autohostname) |v| try writer.print("\"{s}\"", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"autohostrank\":");
+        if (self.autohostrank) |v| try writer.print("{d}", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"autohostaccountid\":");
+        if (self.autohostaccountid) |v| try writer.print("{d}", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"numplayers\":");
+        if (self.numplayers) |v| try writer.print("{d}", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"autohostcountrycode\":");
+        if (self.autohostcountrycode) |v| try writer.print("\"{s}\"", .{v}) else try writer.writeAll("null");
+        try writer.writeAll(",\"hostport\":");
+        if (self.hostport) |v| try writer.print("{d}", .{v}) else try writer.writeAll("null");
+        try writer.writeByte('}');
 
         return json.toOwnedSlice();
     }
@@ -204,7 +329,7 @@ const GameConfigParser = struct {
             const allyteam_id = try std.fmt.parseInt(u32, section[8..], 10);
             try self.parseAllyTeam(allyteam_id, key, value);
         } else if (current_map) |map| {
-            const arena = self.config.string_pool();
+            const arena = self.config.arena.allocator();
             const key_copy = try arena.dupe(u8, key);
             const value_copy = try arena.dupe(u8, value);
             try map.put(key_copy, value_copy);
@@ -212,7 +337,7 @@ const GameConfigParser = struct {
     }
 
     fn parseGlobalKeyValue(self: *GameConfigParser, key: []const u8, value: []const u8) !void {
-        const arena = self.config.string_pool();
+        const arena = self.config.arena.allocator();
         const GlobalField = enum { ishost, hostip, numallyteams, server_match_id, numteams, startpostype, gametype, hosttype, mapname, autohostport, numrestrictions, autohostname, autohostrank, autohostaccountid, numplayers, autohostcountrycode, hostport };
         const field = std.meta.stringToEnum(GlobalField, key) orelse return;
 
@@ -252,7 +377,7 @@ const GameConfigParser = struct {
         }
 
         var player = &self.config.players.items[player_index.?];
-        const arena = self.config.string_pool();
+        const arena = self.config.arena.allocator();
 
         const PlayerField = enum { team, countrycode, accountid, name, rank, skill, spectator, skilluncertainty };
         const field = std.meta.stringToEnum(PlayerField, key) orelse return;
@@ -284,7 +409,7 @@ const GameConfigParser = struct {
         }
 
         var team = &self.config.teams.items[team_index.?];
-        const arena = self.config.string_pool();
+        const arena = self.config.arena.allocator();
 
         const TeamField = enum { allyteam, teamleader, rgbcolor, side, handicap };
         const field = std.meta.stringToEnum(TeamField, key) orelse return;
@@ -332,7 +457,7 @@ const GameConfigParser = struct {
             trimmed = trimmed[1 .. trimmed.len - 1];
         }
 
-        const arena = self.config.string_pool();
+        const arena = self.config.arena.allocator();
         var result = ArrayList(f64).init(arena);
 
         const has_spaces = std.mem.indexOf(u8, trimmed, " ") != null;
