@@ -225,10 +225,108 @@ pub const BarMatch = struct {
         try writer.writeAll("],\"team_stats\":[");
         for (self.statistics.team_stats.items, 0..) |team_stat, i| {
             if (i > 0) try writer.writeByte(',');
-            try writer.print("{{\"team_id\":{d},\"stat_count\":{d},\"entries\":[", .{ team_stat.team_id, team_stat.stat_count });
+            try writer.print("{{\"team_id\":{d},\"stat_count\":{d},", .{ team_stat.team_id, team_stat.stat_count });
+
+            // Write columnar data format
+            try writer.writeAll("\"frame\":[");
             for (team_stat.entries.items, 0..) |entry, j| {
                 if (j > 0) try writer.writeByte(',');
-                try writer.print("{{\"frame\":{d},\"metal_used\":{d:.6},\"energy_used\":{d:.6},\"metal_produced\":{d:.6},\"energy_produced\":{d:.6},\"metal_excess\":{d:.6},\"energy_excess\":{d:.6},\"metal_received\":{d:.6},\"energy_received\":{d:.6},\"metal_send\":{d:.6},\"energy_send\":{d:.6},\"damage_dealt\":{d:.6},\"damage_received\":{d:.6},\"units_produced\":{d},\"units_died\":{d},\"units_received\":{d},\"units_sent\":{d},\"units_captured\":{d},\"units_out_captured\":{d},\"units_killed\":{d}}}", .{ entry.frame, entry.metal_used, entry.energy_used, entry.metal_produced, entry.energy_produced, entry.metal_excess, entry.energy_excess, entry.metal_received, entry.energy_received, entry.metal_send, entry.energy_send, entry.damage_dealt, entry.damage_received, entry.units_produced, entry.units_died, entry.units_received, entry.units_sent, entry.units_captured, entry.units_out_captured, entry.units_killed });
+                try writer.print("{d}", .{entry.frame});
+            }
+            try writer.writeAll("],\"metal_used\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{@as(i32, @intFromFloat(entry.metal_used))});
+            }
+            try writer.writeAll("],\"energy_used\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{@as(i32, @intFromFloat(entry.energy_used))});
+            }
+            try writer.writeAll("],\"metal_produced\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{@as(i32, @intFromFloat(entry.metal_produced))});
+            }
+            try writer.writeAll("],\"energy_produced\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{@as(i32, @intFromFloat(entry.energy_produced))});
+            }
+            try writer.writeAll("],\"metal_excess\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{@as(i32, @intFromFloat(entry.metal_excess))});
+            }
+            try writer.writeAll("],\"energy_excess\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{@as(i32, @intFromFloat(entry.energy_excess))});
+            }
+            try writer.writeAll("],\"metal_received\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{@as(i32, @intFromFloat(entry.metal_received))});
+            }
+            try writer.writeAll("],\"energy_received\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{@as(i32, @intFromFloat(entry.energy_received))});
+            }
+            try writer.writeAll("],\"metal_send\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{@as(i32, @intFromFloat(entry.metal_send))});
+            }
+            try writer.writeAll("],\"energy_send\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{@as(i32, @intFromFloat(entry.energy_send))});
+            }
+            try writer.writeAll("],\"damage_dealt\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{@as(i32, @intFromFloat(entry.damage_dealt))});
+            }
+            try writer.writeAll("],\"damage_received\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{@as(i32, @intFromFloat(entry.damage_received))});
+            }
+            try writer.writeAll("],\"units_produced\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{entry.units_produced});
+            }
+            try writer.writeAll("],\"units_died\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{entry.units_died});
+            }
+            try writer.writeAll("],\"units_received\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{entry.units_received});
+            }
+            try writer.writeAll("],\"units_sent\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{entry.units_sent});
+            }
+            try writer.writeAll("],\"units_captured\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{entry.units_captured});
+            }
+            try writer.writeAll("],\"units_out_captured\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{entry.units_out_captured});
+            }
+            try writer.writeAll("],\"units_killed\":[");
+            for (team_stat.entries.items, 0..) |entry, j| {
+                if (j > 0) try writer.writeByte(',');
+                try writer.print("{d}", .{entry.units_killed});
             }
             try writer.writeAll("]}");
         }
