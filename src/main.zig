@@ -4,6 +4,10 @@ const barmatch_parser = @import("barmatch_parser.zig");
 const print = std.debug.print;
 const ParseMode = barmatch_parser.ParseMode;
 
+// TODO cleanup the free since we are using an arena allocator
+// TODO think about a better parsing mode system where you can include/exclude specific fields (e.g. we might only want the chat messages, or exclude them...)
+// TODO fix the chat message parsing, it has a weird character at the start and end of the message
+
 pub fn main() !void {
     var total_timer = std.time.Timer.start() catch unreachable;
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
