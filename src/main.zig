@@ -27,7 +27,7 @@ pub fn main() !void {
 
     const filePath = args[1];
     const modeStr = if (args.len > 2) args[2] else "header";
-    const mode = if (std.mem.eql(u8, modeStr, "header")) ParseMode.header_only else if (std.mem.eql(u8, modeStr, "metadata")) ParseMode.metadata_only else if (std.mem.eql(u8, modeStr, "essential")) ParseMode.essential_only else if (std.mem.eql(u8, modeStr, "full")) ParseMode.full else ParseMode.header_only;
+    const mode = if (std.mem.eql(u8, modeStr, "header")) ParseMode.header_only else if (std.mem.eql(u8, modeStr, "metadata")) ParseMode.metadata_only else if (std.mem.eql(u8, modeStr, "stats")) ParseMode.metadata_and_stats else if (std.mem.eql(u8, modeStr, "nochat")) ParseMode.full_without_chat else if (std.mem.eql(u8, modeStr, "full")) ParseMode.full else ParseMode.header_only;
 
     const file = try std.fs.cwd().openFile(filePath, .{});
     const fileData = try file.readToEndAlloc(allocator, 1024 * 1024 * 200);

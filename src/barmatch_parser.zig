@@ -13,6 +13,7 @@ const ParseError = error{
 const PacketType = struct {
     const START_POS: u8 = 36;
     const CHAT: u8 = 7;
+    const STARTPLAYING: u8 = 4;
 };
 
 const Vector3 = struct { x: f32, y: f32, z: f32 };
@@ -139,7 +140,8 @@ pub const Header = extern struct {
 pub const ParseMode = enum {
     header_only,
     metadata_only,
-    essential_only,
+    metadata_and_stats,
+    full_without_chat,
     full,
 };
 
@@ -363,13 +365,13 @@ pub fn parse(allocator: Allocator, mode: ParseMode, reader: std.io.AnyReader) !B
 
     if (mode == .metadata_only) return match;
 
-    if (mode == .essential_only) {
+    if (mode == .metadata_and_stats) {
         try reader.skipBytes(@intCast(match.header.demo_stream_size), .{});
         try parseStatistics(allocator, reader, &match);
         return match;
     }
 
-    try parsePacketsStreaming(allocator, reader, &match);
+    try parsePacketsStreaming(allocator, reader, mode, &match);
     try parseStatistics(allocator, reader, &match);
 
     return match;
@@ -402,7 +404,7 @@ const StartPosPacket = struct {
     }
 };
 
-fn parsePacketsStreaming(allocator: Allocator, reader: std.io.AnyReader, match: *BarMatch) !void {
+fn parsePacketsStreaming(allocator: Allocator, reader: std.io.AnyReader, mode: ParseMode, match: *BarMatch) !void {
     var bytes_read: u32 = 0;
     const total_size: u32 = @intCast(match.header.demo_stream_size);
 
@@ -428,6 +430,18 @@ fn parsePacketsStreaming(allocator: Allocator, reader: std.io.AnyReader, match: 
                 for (match.game_config.players.items) |*player| {
                     if (player.id == pos.playerId) {
                         player.startpos = startpos;
+                        break;
+                    }
+                }
+            },
+            PacketType.STARTPLAYING => {
+                // uint32_t countdown
+                const countdown = try reader.readInt(u32, .little);
+                if (mode == .full_without_chat) {
+                    std.debug.print("Warning: STARTPLAYING packet with non-zero countdown: {d}\n", .{countdown});
+                    if (countdown == 0) {
+                        bytes_read += length;
+                        _ = try reader.skipBytes(total_size - bytes_read, .{});
                         break;
                     }
                 }
