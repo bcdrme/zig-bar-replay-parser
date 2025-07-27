@@ -1,8 +1,7 @@
 const std = @import("std");
-const bardemofile_parser = @import("barmatch_parser.zig");
+const barmatch_parser = @import("barmatch_parser.zig");
 
-const ParseMode = bardemofile_parser.ParseMode;
-const BarDemofileParser = bardemofile_parser.BarDemofileParser;
+const ParseMode = barmatch_parser.ParseMode;
 
 var g_allocator: std.mem.Allocator = undefined;
 var g_output_buffer: []u8 = undefined;
@@ -53,8 +52,7 @@ export fn parseDemoFileFromMemory(file_data_ptr: usize, file_data_len: usize, mo
 
     var stream = std.io.fixedBufferStream(fileData);
     var decompressor = std.compress.gzip.decompressor(stream.reader());
-    var parser = BarDemofileParser(@TypeOf(decompressor.reader())).init(g_allocator, parseMode, decompressor.reader());
-    var match = parser.parse() catch return 0;
+    var match = barmatch_parser.parse(g_allocator, parseMode, decompressor.reader().any()) catch return 0;
     g_output_buffer = match.toJson(g_allocator) catch return 0;
 
     return g_output_buffer.len;
