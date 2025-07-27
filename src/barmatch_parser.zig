@@ -164,10 +164,7 @@ pub const BarMatch = struct {
     }
 
     pub fn deinit(self: *BarMatch) void {
-        // GameConfig uses an arena allocator that will free all its allocations
-        // when deinit() is called, so we don't need to free individual arrays
         self.game_config.deinit();
-
         for (self.chat_messages.items) |msg| {
             self.allocator.free(msg.message);
         }
@@ -202,13 +199,13 @@ pub const BarMatch = struct {
         try writer.print("\"team_stat_elem_size\":{d},", .{self.header.team_stat_elem_size});
         try writer.print("\"team_stat_period\":{d},", .{self.header.team_stat_period});
         try writer.print("\"winning_ally_teams_size\":{d}}},", .{self.header.winning_ally_teams_size});
-
         try writer.print("\"packet_offset\":{d},\"stat_offset\":{d},", .{ self.packet_offset, self.stat_offset });
-
         try writer.writeAll("\"chat_messages\":[");
         for (self.chat_messages.items, 0..) |msg, i| {
             if (i > 0) try writer.writeByte(',');
-            try writer.print("{{\"from_id\":{d},\"to_id\":{d},\"message\":\"{s}\",\"game_timestamp\":{d}}}", .{ msg.from_id, msg.to_id, msg.message, msg.game_timestamp });
+            const escaped_message = try escapeJsonString(allocator, msg.message);
+            defer allocator.free(escaped_message);
+            try writer.print("{{\"from_id\":{d},\"to_id\":{d},\"message\":\"{s}\",\"game_timestamp\":{d}}}", .{ msg.from_id, msg.to_id, escaped_message, msg.game_timestamp });
         }
         try writer.writeAll("],");
 
@@ -444,7 +441,7 @@ fn parsePacketsStreaming(allocator: Allocator, reader: std.io.AnyReader, match: 
                 try match.chat_messages.append(.{
                     .from_id = from,
                     .to_id = to,
-                    .message = msg,
+                    .message = msg[1 .. msg_len - 1],
                     .game_timestamp = game_time,
                 });
             },
@@ -516,4 +513,29 @@ fn parseStatistics(allocator: Allocator, reader: std.io.AnyReader, match: *BarMa
         }
         match.statistics.team_stats = teams;
     }
+}
+
+fn escapeJsonString(allocator: Allocator, input: []const u8) ![]u8 {
+    var result = ArrayList(u8).init(allocator);
+    defer result.deinit();
+    for (input) |char| {
+        switch (char) {
+            '"' => try result.appendSlice("\\\""),
+            '\\' => try result.appendSlice("\\\\"),
+            '\n' => try result.appendSlice("\\n"),
+            '\r' => try result.appendSlice("\\r"),
+            '\t' => try result.appendSlice("\\t"),
+            '\x08' => try result.appendSlice("\\b"), // backspace
+            '\x0C' => try result.appendSlice("\\f"), // form feed
+            else => {
+                if (char < 32) {
+                    // Control characters - escape as \uXXXX
+                    try std.fmt.format(result.writer(), "\\u{x:0>4}", .{char});
+                } else {
+                    try result.append(char);
+                }
+            },
+        }
+    }
+    return result.toOwnedSlice();
 }
