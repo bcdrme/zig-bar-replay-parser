@@ -419,10 +419,6 @@ fn parsePacketsStreaming(allocator: Allocator, reader: std.io.AnyReader, mode: P
         switch (packet_type) {
             PacketType.START_POS => {
                 const pos = try StartPosPacket.readFrom(reader);
-                // std.debug.print("StartPos: playerId={d}, teamId={d}, ready={d}, x={d}, y={d}, z={d}\n", .{
-                //     pos.playerId, pos.teamId, pos.ready, pos.x, pos.y, pos.z,
-                // });
-                // std.debug.print("size of StartPosPacket: {d}\n", .{@sizeOf(StartPosPacket)});
                 const startpos = try match.game_config.arena.allocator().alloc(f32, 3);
                 startpos[0] = pos.x;
                 startpos[1] = pos.y;
@@ -438,8 +434,8 @@ fn parsePacketsStreaming(allocator: Allocator, reader: std.io.AnyReader, mode: P
                 // uint32_t countdown
                 const countdown = try reader.readInt(u32, .little);
                 if (mode == .full_without_chat) {
-                    std.debug.print("Warning: STARTPLAYING packet with non-zero countdown: {d}\n", .{countdown});
                     if (countdown == 0) {
+                        // Stop parsing packets if game has started
                         bytes_read += length;
                         _ = try reader.skipBytes(total_size - bytes_read, .{});
                         break;

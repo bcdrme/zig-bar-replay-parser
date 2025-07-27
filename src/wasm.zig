@@ -41,9 +41,10 @@ export fn parseDemoFileFromMemory(file_data_ptr: usize, file_data_len: usize, mo
     const parseMode = switch (mode) {
         0 => ParseMode.header_only,
         1 => ParseMode.metadata_only,
-        2 => ParseMode.essential_only,
-        3 => ParseMode.full,
-        else => ParseMode.metadata_only,
+        2 => ParseMode.metadata_and_stats,
+        3 => ParseMode.full_without_chat,
+        4 => ParseMode.full,
+        else => ParseMode.header_only,
     };
 
     g_output_buffer = &[_]u8{};
