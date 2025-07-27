@@ -447,17 +447,21 @@ fn parsePacketsStreaming(allocator: Allocator, reader: std.io.AnyReader, mode: P
                 }
             },
             PacketType.CHAT => {
-                const from = try reader.readByte();
-                const to = try reader.readByte();
-                const msg_len = length - 3;
-                const msg = try allocator.alloc(u8, msg_len);
-                _ = try reader.readAll(msg);
-                try match.chat_messages.append(.{
-                    .from_id = from,
-                    .to_id = to,
-                    .message = msg[1 .. msg_len - 1],
-                    .game_timestamp = game_time,
-                });
+                if (mode == .full_without_chat) {
+                    try reader.skipBytes(length - 1, .{});
+                } else {
+                    const from = try reader.readByte();
+                    const to = try reader.readByte();
+                    const msg_len = length - 3;
+                    const msg = try allocator.alloc(u8, msg_len);
+                    _ = try reader.readAll(msg);
+                    try match.chat_messages.append(.{
+                        .from_id = from,
+                        .to_id = to,
+                        .message = msg[1 .. msg_len - 1],
+                        .game_timestamp = game_time,
+                    });
+                }
             },
             else => {
                 try reader.skipBytes(length - 1, .{});
